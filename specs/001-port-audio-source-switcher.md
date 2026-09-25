@@ -157,7 +157,7 @@ source, and the port's behaviour must match it.
   handsfree, AADP UUIDs, or an `audio-` icon), in priority order then
   appearance order.
 
-### R5. Switching and auto-switching *(as the original)*
+### R5. Switching and auto-switching *(as the original)* (done)
 
 - R5.1 `Switch(target)`: if JamesDSP outputs exist in the graph and the
   breaker is closed, set default to `jamesdsp_sink`, move streams there if
@@ -184,7 +184,7 @@ source, and the port's behaviour must match it.
   polls for the sink every 500 ms for up to 10 s. Exit 0 on switch, 1 on
   failure, each failure notified.
 
-### R6. JamesDSP routing *(as the original)*
+### R6. JamesDSP routing *(as the original)* (done)
 
 - R6.1 Outputs: lines of `pw-link -o` containing `jdsp_`, `JamesDsp` and
   `:output_`. Target inputs: lines of `pw-link -i` containing the sink name
@@ -197,7 +197,7 @@ source, and the port's behaviour must match it.
   sink's when the default is `jamesdsp_sink`.
 - R6.4 Absent `pw-link` is reported once and disables R5.1's JamesDSP path.
 
-### R7. Microphone association *(as the original)*
+### R7. Microphone association *(as the original)* (done)
 
 - R7.1 `mic_links[id]` is `auto` (absent), `default` (leave alone) or a
   source name.
@@ -341,7 +341,7 @@ Port (later PRs, one per requirement group):
 
 - [x] R3.3, R3.4: write side and subscription, tested against the live server where present (PR: feat/audio-write-and-watch; the reconnect path is exercised only by the no-server test, since restarting the developer's sound server from a test is not acceptable).
 - [x] R4: device model, with table-driven tests over synthetic sink property sets (no real MACs). (PR: feat/device-model. The Bluetooth cache and the headset battery are inputs the model takes; they are supplied by R9, so until then a Bluetooth device is named by its address and the Arctis reads as off.)
-- [ ] R5, R6, R7: switching, auto-switching, JamesDSP and microphone, with the algorithm tested over a fake server snapshot and a fake graph.
+- [x] R5, R6, R7: switching, auto-switching, JamesDSP and microphone, with the algorithm tested over a fake server snapshot and a fake graph. (PR: feat/switching. `--connect`, `--vol-up` and `--vol-down` act on the server directly until D10 forwards them to the running instance. One deviation from the original, on purpose: the fallback that picks any connected sink never picks the JamesDSP sink itself, which the original's sink order could.)
 - [ ] R8: the indicator, after the R8.4 experiment is recorded here.
 - [ ] R9: Bluetooth, headset, loopback, tray.
 - [ ] R10: the sections, with headless tests naming the defect each prevents.
