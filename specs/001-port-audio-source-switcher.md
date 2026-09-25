@@ -347,7 +347,7 @@ Port (later PRs, one per requirement group):
 - [ ] R8: the indicator, after the R8.4 experiment is recorded here.
 - [ ] R9: Bluetooth, headset, loopback, tray. R9.1 and R9.2 done (PR: feat/bluetooth-headset): the adapter over the system bus and headsetcontrol are the device model's inputs, and an away Bluetooth device is connected and waited for before the switch. The device path is found by address rather than assumed under hci0. R9.4 done (PR: feat/tray-and-tick): tray with Show, About and Quit; close hides to the tray and the tick continues; without a tray, close quits. R9.3 remains.
 - [ ] R10: the sections, with headless tests naming the defect each prevents. R10.1, R10.2 and R10.4 done (PRs: feat/tray-and-tick, feat/sections): the list with Switch to, Connect, Disconnect, Move up and Move down on the selected row, the auto-switch check, and the playing device's volume and mute; the Microphone section; the Settings switches. R10.3 (headset) and the desktop steps in Settings remain.
-- [ ] D9, D10, R11: desktop steps, the volume keys bound and restored by the program, and single instance.
+- [ ] D9, D10, R11: desktop steps, the volume keys bound and restored by the program, and single instance. D10 done (PR: feat/single-instance): an flock and a Unix socket in the runtime directory; a second launch shows the first window; `--vol-up`, `--vol-down` and `--connect` are answered by the running instance and act on their own only when none runs. D9 and R11 remain.
 - [ ] The original is retired from ag-scripts' README with a pointer here.
 
 ## Risks & Assumptions

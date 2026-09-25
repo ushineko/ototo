@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -97,6 +98,19 @@ func TestTheAutoSwitchCheckWritesTheSetting(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, cfg.AutoSwitch, "the setting was not written")
 	require.True(t, u.status.Config.AutoSwitch)
+}
+
+// TestARequestFromASecondInvocationIsAnswered: "show" brings the window
+// back, an unknown verb is refused, and a volume step with no server says
+// why in the reply the caller prints.
+func TestARequestFromASecondInvocationIsAnswered(t *testing.T) {
+	u := testUI(t)
+	u.hiddenToTray = true
+	require.Equal(t, "ok shown", u.handle("show"))
+	require.False(t, u.hiddenToTray)
+	require.Contains(t, u.handle("dance"), "error unknown request")
+	reply := u.handle("vol-up")
+	require.True(t, strings.HasPrefix(reply, "error "), reply)
 }
 
 // TestSwitchedTextNamesTheRouting: the banner says through what and with

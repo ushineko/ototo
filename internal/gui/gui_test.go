@@ -14,6 +14,7 @@ import (
 	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/devices"
+	"github.com/ushineko/ototo/internal/instance"
 )
 
 /*
@@ -36,6 +37,7 @@ func testUI(t *testing.T) *ui {
 	home := fynetest.Sandbox(t)
 	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
 	t.Setenv("PULSE_SERVER", "unix:"+filepath.Join(home, "no-server"))
+	t.Setenv(instance.DirEnv, filepath.Join(home, "run"))
 	app := test.NewApp()
 	t.Cleanup(app.Quit)
 	u := newUI(Options{Version: "test", Commit: "0000000"})
