@@ -38,7 +38,7 @@ func testUI(t *testing.T) *ui {
 	t.Setenv("PULSE_SERVER", "unix:"+filepath.Join(home, "no-server"))
 	app := test.NewApp()
 	t.Cleanup(app.Quit)
-	u := &ui{version: "test", commit: "0000000"}
+	u := newUI(Options{Version: "test", Commit: "0000000"})
 	u.sh = shell.Headless(app, u.shellOptions(Options{}))
 	win := test.NewWindow(widget.NewLabel(""))
 	u.sh.Window = win
