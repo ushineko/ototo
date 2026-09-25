@@ -64,7 +64,7 @@ func run() int {
 	}
 
 	if *version {
-		fmt.Printf("ototo %s (%s)\n", buildinfo.Version, buildinfo.Commit)
+		fmt.Println("ototo " + buildinfo.Version)
 		return 0
 	}
 

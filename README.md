@@ -90,10 +90,14 @@ page carries one built by CI.
 ## Using it
 
 ```
-ototo                 # the window; lives in the tray once the tray lands
-ototo --status        # the sound server, the default output and the outputs, as text
+ototo                 # the window, in the tray
+ototo --status        # the sound server, the default output and the devices, as text
 ototo --version
 ```
+
+A build that is not the release says so: `0.1.0-1a2b3c4-dev` unless HEAD is on
+the version's tag with a clean tree. Packages stamp their own version and are
+unaffected.
 
 `--section` and `--scheme` open the window on a section in a colour scheme
 without saving either, for the screenshot harness. `--config` and `--server`
