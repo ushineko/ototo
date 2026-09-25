@@ -127,6 +127,14 @@ func TestTheListIsPriorityThenAppearanceThenPaired(t *testing.T) {
 	}
 }
 
+// TestACurlyApostropheIsMadePlain: a phone names a headset "Papa’s"; the
+// window's font has no such glyph, and the row it was in drew blank.
+func TestACurlyApostropheIsMadePlain(t *testing.T) {
+	rows := List(Inputs{Bluetooth: []Bluetooth{{MAC: airpodsMAC, Name: "Papa’s AirPods Pro"}}})
+	require.Equal(t, "Papa's AirPods Pro [Disconnected]", rows[0].Name)
+	require.Equal(t, `"Buds" - 1`, Plain("“Buds” – 1"))
+}
+
 // TestARememberedDeviceWithNoAdapterKeepsItsId: with no Bluetooth cache the
 // row is named by its id rather than dropped, so the priority order stays
 // editable on a machine whose adapter is off.

@@ -47,7 +47,7 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 	}
 
 	t := table.New()
-	t.Header("", "Device", "State", "Volume", "Id")
+	t.Header("Device", "State", "Volume", "Id")
 	for _, d := range res.Devices {
 		t.Row(deviceStatus(d), deviceCells(d)...)
 	}
@@ -330,16 +330,14 @@ func deviceStatus(d devices.Device) fd.Status {
 // away (no sink, connect it), disconnected (a sink with nothing plugged in),
 // or ready.
 func deviceCells(d devices.Device) []string {
-	mark := ""
-	if d.Default {
-		mark = "playing"
-	}
 	state := "ready"
 	switch {
 	case !d.Online:
 		state = "away"
 	case !d.Connected:
 		state = "disconnected"
+	case d.Default:
+		state = "playing"
 	}
 	vol := ""
 	switch {
@@ -349,5 +347,5 @@ func deviceCells(d devices.Device) []string {
 	default:
 		vol = fmt.Sprintf("%d%%", d.Volume)
 	}
-	return []string{mark, d.Name, state, vol, d.ID}
+	return []string{d.Name, state, vol, d.ID}
 }

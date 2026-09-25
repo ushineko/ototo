@@ -41,6 +41,7 @@ func TestAnOlderFileIsBackfilled(t *testing.T) {
 	require.True(t, cfg.AutoSwitch)
 	require.True(t, cfg.OSDEnabled)
 	require.True(t, cfg.MoveStreams)
+	require.Equal(t, DefaultOSDTextSize, cfg.OSDTextSize, "an older file has no text size; the default applies")
 	require.Equal(t, []string{"bt:AA:BB:CC:DD:EE:FF", "alsa_output.usb"}, cfg.DevicePriority)
 	require.NotNil(t, cfg.MicLinks)
 }

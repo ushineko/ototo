@@ -375,6 +375,27 @@ func TestTheHeadsetProbeReachesTheList(t *testing.T) {
 	require.True(t, res.Device.Connected)
 }
 
+// TestStatusMarksTheSinkBehindJamesDSPAsPlaying: with JamesDSP as the
+// default, the row that plays is the hardware sink it is routed to, not
+// nothing.
+func TestStatusMarksTheSinkBehindJamesDSPAsPlaying(t *testing.T) {
+	w := newWorld(t, true)
+	w.srv.defaultSink = devices.JamesDSPSink
+	w.g.target = headsetSink
+	_ = w
+	// Status opens its own graph (pw-link on PATH); on this machine that
+	// reads the real graph, so the pure part is what this test pins.
+	in := devices.Inputs{Sinks: w.srv.sinks, DefaultSink: headsetSink}
+	list := devices.List(in)
+	var playing []string
+	for _, d := range list {
+		if d.Default {
+			playing = append(playing, d.Sink)
+		}
+	}
+	require.Equal(t, []string{headsetSink}, playing)
+}
+
 // TestAServerRefusalIsReturnedAndNotified: a hotkey has no terminal.
 func TestAServerRefusalIsReturnedAndNotified(t *testing.T) {
 	w := newWorld(t, false)

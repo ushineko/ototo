@@ -42,6 +42,9 @@ type Config struct {
 	MicLinks map[string]string `json:"mic_links"`
 	// OSDEnabled shows the program's own volume indicator.
 	OSDEnabled bool `json:"osd_enabled"`
+	// OSDTextSize is the indicator's value text size in points; 0 means
+	// DefaultOSDTextSize.
+	OSDTextSize int `json:"osd_text_size"`
 	// SwitchNotifications sends a desktop notification on an automatic switch.
 	// Failure notifications are sent regardless.
 	SwitchNotifications bool `json:"switch_notifications"`
@@ -51,12 +54,17 @@ type Config struct {
 	MoveStreams bool `json:"move_streams"`
 }
 
+// DefaultOSDTextSize is the indicator's value text size when the setting
+// is absent: large, because the indicator is read from across the room.
+const DefaultOSDTextSize = 32
+
 // Default is the document a machine starts with.
 func Default() Config {
 	return Config{
 		DevicePriority:      []string{},
 		MicLinks:            map[string]string{},
 		OSDEnabled:          true,
+		OSDTextSize:         DefaultOSDTextSize,
 		SwitchNotifications: true,
 		MoveStreams:         true,
 	}

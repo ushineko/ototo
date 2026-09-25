@@ -6,8 +6,13 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
 	fd "github.com/ushineko/fynedesygn"
 	"github.com/ushineko/fynedesygn/glance"
+	"github.com/ushineko/fynedesygn/widgets"
+
+	"github.com/ushineko/ototo/internal/config"
 
 	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/core"
@@ -37,7 +42,12 @@ type indicator struct {
 	win   *glance.Window
 	card  *glance.Card
 	meter *glance.Meter
-	tr    *glance.Transient
+	// value is the number, drawn large: the indicator is read from across
+	// the room, and the meter's own caption is sized for a panel that is
+	// read up close. Its size is the osd_text_size setting.
+	value    *canvas.Text
+	textSize float32
+	tr       *glance.Transient
 	// last is the snapshot on screen or last shown; shown says whether it
 	// has been drawn at all.
 	last  volumeSnapshot
@@ -58,11 +68,16 @@ func newIndicator(a fyne.App) *indicator {
 		Secondary: true,
 	})
 	w.Window().SetIcon(appIcon())
-	m := glance.NewMeter("Volume", 0)
+	m := glance.NewMeter("", 0)
+	value := canvas.NewText("", widgets.StatusColor(fd.StatusGood))
+	value.Alignment = fyne.TextAlignCenter
+	value.TextStyle = fyne.TextStyle{Bold: true}
+	value.TextSize = config.DefaultOSDTextSize
 	card := glance.NewCard("Volume")
-	card.AddObject(m.Object())
+	card.AddObject(container.NewVBox(value, m.Object()))
 	w.Panel().Add(card)
-	in := &indicator{win: w, card: card, meter: m, tr: glance.NewTransient(w, indicatorHold)}
+	in := &indicator{win: w, card: card, meter: m, value: value, textSize: config.DefaultOSDTextSize,
+		tr: glance.NewTransient(w, indicatorHold)}
 	in.tr.OnShow = func() {
 		// Placed on the pointer's screen by the compositor; without KWin the
 		// window stays where the compositor put it, which is not an error.
@@ -86,7 +101,13 @@ func (in *indicator) draw(v volumeSnapshot) {
 	case v.percent > 100:
 		st = fd.StatusWarn
 	}
-	in.meter.Set(fraction, caption, st)
+	in.meter.Set(fraction, "", st)
+	in.value.Text = caption
+	in.value.Color = widgets.StatusColor(st)
+	if in.textSize > 0 {
+		in.value.TextSize = in.textSize
+	}
+	in.value.Refresh()
 	// A card draws once its source has answered; the first snapshot is the
 	// answer. Without this the window is a 6 px strip with nothing in it.
 	in.card.SetAvailable(true)
@@ -149,6 +170,9 @@ func (u *ui) showVolume(res core.VolumeResult) {
 			return
 		}
 		u.events().Log(core.LevelDebug, fmt.Sprintf("indicator: enabled=%v", u.osdEnabled()))
+		if u.statusOK && u.status.Config.OSDTextSize > 0 {
+			u.osd.textSize = float32(u.status.Config.OSDTextSize)
+		}
 		u.osd.show(volumeSnapshot{percent: res.Percent, muted: res.Muted}, u.osdEnabled())
 	})
 }

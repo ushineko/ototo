@@ -89,13 +89,13 @@ func TestALoadInProgressIsNotStartedTwice(t *testing.T) {
 // function because the table builds cells only on a canvas.
 func TestDeviceRowsSayWhatAPersonWouldAsk(t *testing.T) {
 	cells := deviceCells(devices.Device{ID: "alsa_output.x", Name: "Speakers", Sink: "alsa_output.x", Online: true, Default: true, Connected: true, Volume: 42})
-	require.Equal(t, []string{"playing", "Speakers", "ready", "42%", "alsa_output.x"}, cells)
+	require.Equal(t, []string{"Speakers", "playing", "42%", "alsa_output.x"}, cells)
 
 	cells = deviceCells(devices.Device{ID: "alsa_output.y", Name: "Line Out [Disconnected]", Sink: "alsa_output.y", Online: true, Mute: true})
-	require.Equal(t, []string{"", "Line Out [Disconnected]", "disconnected", "muted", "alsa_output.y"}, cells)
+	require.Equal(t, []string{"Line Out [Disconnected]", "disconnected", "muted", "alsa_output.y"}, cells)
 
 	cells = deviceCells(devices.Device{ID: "bt:AA:BB:CC:DD:EE:FF", Name: "AirPods [Disconnected]"})
-	require.Equal(t, []string{"", "AirPods [Disconnected]", "away", "", "bt:AA:BB:CC:DD:EE:FF"}, cells)
+	require.Equal(t, []string{"AirPods [Disconnected]", "away", "", "bt:AA:BB:CC:DD:EE:FF"}, cells)
 }
 
 // TestTheDefaultOutputIsNamedForAPerson: the status bar says "Speakers", not
