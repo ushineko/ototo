@@ -64,15 +64,40 @@ output.](assets/screenshot-outputs.png)
 
 ## Requirements
 
-- Linux with PipeWire and `pipewire-pulse` (or PulseAudio). `ototo` speaks the
-  PulseAudio native protocol to whichever is listening.
-- A desktop that draws OpenGL windows. KDE Plasma on Wayland is where it is
-  used; the window rule and the global shortcuts are Plasma's.
+- **A PulseAudio server, mandatory.** PipeWire with `pipewire-pulse`, or
+  PulseAudio itself. `ototo` speaks the PulseAudio native protocol to
+  whichever is listening, and does nothing without one.
+- A desktop that draws OpenGL windows.
 - Optional at run time: `pw-link` (from PipeWire, for JamesDSP routing),
   `bluez` (for headsets), `headsetcontrol` (for the Arctis battery). Each is
   reported when absent, and nothing else stops working.
 - To build: Go 1.26 or newer, a C toolchain, and the OpenGL and X11/Wayland
   development headers (`make build` names the packages if they are missing).
+
+**Tested on** CachyOS with KDE Plasma 6 on Wayland, PipeWire 1.6 serving the
+PulseAudio protocol, and JamesDSP. That is the one machine it was written on
+and runs on. The window rule, the global shortcuts and the autostart entry are
+Plasma's; on another desktop the indicator keeps its titlebar and the volume
+keys stay with whatever holds them. Other desktops and distributions may work
+and are untested. If you try it and it does not work for you, please file an
+issue with the output of `ototo --status`.
+
+### JamesDSP, or no effects at all
+
+JamesDSP is not required. Without it, a switch sets the chosen device as the
+default output and moves the playing streams there, and that is all.
+
+With JamesDSP running, `ototo` recognises its sink and its output ports by
+name, `jamesdsp_sink` and the `jdsp_` ports in the PipeWire graph, keeps the
+default output on that sink, and rewires its output to the chosen device, so
+the effects apply whatever plays. If the rewiring fails, the switch falls back
+to the device itself and says so.
+
+Another effects sink, such as EasyEffects, is not recognised. It appears in
+the list as an ordinary device, and a switch to a hardware device sets that
+device as the default, which bypasses it. If you use one and want it routed
+the way JamesDSP is, please file an issue with its sink and port names from
+`pw-link -o` and `ototo --status`.
 
 ## Installing
 
