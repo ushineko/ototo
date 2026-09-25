@@ -67,6 +67,7 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 	switchBtn.Importance = widget.HighImportance
 	connectBtn := widget.NewButtonWithIcon("Connect", theme.ConfirmIcon(), func() { u.connectSelected(true) })
 	disconnectBtn := widget.NewButtonWithIcon("Disconnect", theme.CancelIcon(), func() { u.connectSelected(false) })
+
 	upBtn := widget.NewButtonWithIcon("Move up", theme.MoveUpIcon(), func() { u.moveSelected(-1) })
 	downBtn := widget.NewButtonWithIcon("Move down", theme.MoveDownIcon(), func() { u.moveSelected(+1) })
 	enable := func() {
@@ -123,7 +124,12 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 			widgets.FactRow("Inputs", fmt.Sprintf("%d", res.Inputs), fd.StatusInfo),
 		),
 		u.volumeCard(),
-		container.NewHBox(switchBtn, connectBtn, disconnectBtn, widgets.Sep(), upBtn, downBtn),
+		container.NewHBox(
+			widgets.WithTip(switchBtn, "Play on this device now. An away Bluetooth device is connected first."),
+			widgets.WithTip(connectBtn, "Bring a Bluetooth device up without moving the audio to it. The order, "+
+				"or Switch to, decides what plays."),
+			widgets.WithTip(disconnectBtn, "Drop the Bluetooth connection. Its sink goes away and the order moves on."),
+			widgets.Sep(), upBtn, downBtn),
 		widgets.WithTip(auto, "Every five seconds, the highest device in your order that can play becomes the "+
 			"output. Move devices up and down to change what wins."),
 		widgets.FixedHeight(u.live.table, outputsTableHeight),
@@ -335,15 +341,25 @@ func switchedText(res core.SwitchResult) string {
 	return text + "."
 }
 
-// connectSelected connects or disconnects the selected Bluetooth device. A
-// connect is a switch (R5.5 connects first); a disconnect drops the device.
+// connectSelected connects or disconnects the selected Bluetooth device.
+// A connect brings the device up and leaves the audio where it is; Switch
+// to is the one that moves it (and connects first when it must).
 func (u *ui) connectSelected(connect bool) {
 	d, ok := u.selectedDevice()
 	if !ok || d.MAC == "" {
 		return
 	}
 	if connect {
-		u.switchToSelected()
+		u.sh.Perform("Connecting "+d.Name+"...", func(ctx context.Context) error {
+			dev, err := u.sw.Connect(ctx, core.ConnectRequest{Request: u.request(), Target: d.ID})
+			u.refreshQuietly()
+			fyne.Do(func() {
+				if err == nil {
+					u.sh.OK("Connected " + dev.Name + ". Switch to it, or let the order decide.")
+				}
+			})
+			return err
+		})
 		return
 	}
 	u.sh.Perform("Disconnecting "+d.Name+"...", func(ctx context.Context) error {
