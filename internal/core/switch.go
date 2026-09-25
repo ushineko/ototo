@@ -12,6 +12,7 @@ import (
 	"github.com/ushineko/ototo/internal/config"
 	"github.com/ushineko/ototo/internal/devices"
 	"github.com/ushineko/ototo/internal/graph"
+	"github.com/ushineko/ototo/internal/loopback"
 	"github.com/ushineko/ototo/internal/notify"
 )
 
@@ -47,6 +48,8 @@ type Switcher struct {
 	Graph *graph.Graph
 	// Notifier receives the notifications; nil discards them.
 	Notifier notify.Notifier
+	// Loopback is the line-in loopback (R9.3); nil uses the real commands.
+	Loopback *loopback.Loopback
 
 	dial func(server string) (server, error)
 
@@ -65,6 +68,20 @@ func (s *Switcher) graph() *graph.Graph {
 		s.Graph = graph.New()
 	}
 	return s.Graph
+}
+
+func (s *Switcher) loopback() *loopback.Loopback {
+	if s.Loopback == nil {
+		s.Loopback = loopback.New()
+	}
+	return s.Loopback
+}
+
+// Close stops what the Switcher owns: a direct loopback child, if any.
+func (s *Switcher) Close() {
+	if s.Loopback != nil {
+		s.Loopback.Close()
+	}
 }
 
 func (s *Switcher) notifier() notify.Notifier {

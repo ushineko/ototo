@@ -248,11 +248,24 @@ what this spec proposes as library work under "Gaps found":
 - R8.3 It appears on the hotkey flags and on subscription events, debounced
   80 ms and deduplicated on (percent, muted). It records the state even when
   `osd_enabled` is false, and then does not show.
-- R8.4 **Placement experiment, before R8.1 is built.** On this Plasma 6
-  Wayland session, test (a) a KWin `position` rule with coordinates and a
-  title match, as the original did, and (b) the Scripting D-Bus API moving a
-  window by `resourceClass`. Record which works in this spec and update
-  `docs/glance.md` in fynedesygn if (a) does, since that page says it cannot.
+- R8.4 **Placement experiment: done, 2026-09-24, Plasma 6 on Wayland, two
+  screens at scale 1.5.** A Fyne splash window (380 x 132, `RequestAlwaysOnTop`)
+  with no rule appeared with a KWin titlebar (388 x 168), on the pointer's
+  screen, and **took the focus**. (a) A rule matched by `wmclass` and
+  `title` with `position=500,1300` forced put the window at exactly
+  500,1300; `noborder` forced removed the titlebar (380 x 132);
+  `acceptfocus=false` forced left the focus where it was. So a `position`
+  rule with coordinates does work here, and `docs/glance.md` in fynedesygn
+  is out of date on that point. (b) The Scripting D-Bus API (`loadScript`,
+  `run`, `unloadScript` on `org.kde.KWin /Scripting`) moved the window to
+  the coordinates a script set on `frameGeometry`, found by `resourceClass`.
+  Both work. **Decision:** one rule, matched by title (the main window
+  shares the app id, so `wmclass` alone would strip its titlebar too), with
+  `noborder`, `above`, the three skips and `acceptfocus=false`, and no
+  `position`; the program moves the window with (b) at each show, to the
+  centre of the screen the pointer is on, which a script reads from
+  `workspace.cursorPos`. That keeps one window and one rule for any number
+  of screens, where the original kept a rule per screen.
 - R8.5 The KWin rule is installed by `--desktop install` and from Settings,
   never at first run, and removed by `--desktop uninstall`. It is written
   through `glance/kwin` once that package carries the keys R8 needs.
@@ -313,10 +326,23 @@ practice rather than by design.
   pattern for reading claims and releasing them). On Plasma 6 a command
   shortcut is a desktop entry under `$XDG_DATA_HOME/kglobalaccel/` carrying
   `X-KDE-GlobalAccel-CommandShortcut=true` and an `Exec`, with its sequence
-  set through `setShortcut` on that entry's component. **Verify this on the
-  development machine before building it**, and record here which of the
-  two shapes (`kglobalaccel/` entry, or `applications/` entry) this Plasma
-  version honours.
+  set through `setShortcutKeys` on that entry's component. **Verified,
+  2026-09-24, on this Plasma 6 session:** the entry is a desktop file under
+  `$XDG_DATA_HOME/applications/` (Plasma's own custom shortcuts are
+  `net.local.*.desktop` there, with `X-KDE-GlobalAccel-CommandShortcut=true`
+  and `NoDisplay=true`). Registration is `doRegister([file, "_launch",
+  friendly, "Launch"])` then `setShortcutKeys(id, [[key]], 2)`, **from one
+  persistent D-Bus connection**: kglobalaccel drops an action whose
+  connection closes before the keys are set, which is why `busctl` one-shots
+  registered nothing. After the connection closes the shortcut stays,
+  written to `kglobalshortcutsrc` under `[services][file]` as `_launch=`
+  within two seconds; `unregister(file, "_launch")` removes it and the
+  line. The key is a Qt key combination integer: `Volume Up` is
+  `0x01000070`, `Volume Down` `0x01000071`, modifiers or-ed in
+  (`Meta=0x10000000`, `Shift=0x02000000`). On this machine `Volume Up` and
+  `Volume Down` are held by the old program's `net.local.audio-source-
+  switcher-3.desktop` and `-4.desktop`; R11.1's record of what held the keys
+  must therefore cover any component, not only kmix.
 - R11.3 A key that another component holds is reported, not taken: "Volume
   Up is held by <component>. Release it in System Settings, or turn the
   indicator off." A claim that is a leftover (hotaru's `Claim`) is offered
@@ -345,7 +371,7 @@ Port (later PRs, one per requirement group):
 - [x] R4: device model, with table-driven tests over synthetic sink property sets (no real MACs). (PR: feat/device-model. The Bluetooth cache and the headset battery are inputs the model takes; they are supplied by R9, so until then a Bluetooth device is named by its address and the Arctis reads as off.)
 - [x] R5, R6, R7: switching, auto-switching, JamesDSP and microphone, with the algorithm tested over a fake server snapshot and a fake graph. (PR: feat/switching. `--connect`, `--vol-up` and `--vol-down` act on the server directly until D10 forwards them to the running instance. One deviation from the original, on purpose: the fallback that picks any connected sink never picks the JamesDSP sink itself, which the original's sink order could.)
 - [ ] R8: the indicator, after the R8.4 experiment is recorded here.
-- [ ] R9: Bluetooth, headset, loopback, tray. R9.1 and R9.2 done (PR: feat/bluetooth-headset): the adapter over the system bus and headsetcontrol are the device model's inputs, and an away Bluetooth device is connected and waited for before the switch. The device path is found by address rather than assumed under hci0. R9.4 done (PR: feat/tray-and-tick): tray with Show, About and Quit; close hides to the tray and the tick continues; without a tray, close quits. R9.3 remains.
+- [ ] R9: Bluetooth, headset, loopback, tray. R9.1 and R9.2 done (PR: feat/bluetooth-headset): the adapter over the system bus and headsetcontrol are the device model's inputs, and an away Bluetooth device is connected and waited for before the switch. The device path is found by address rather than assumed under hci0. R9.4 done (PR: feat/tray-and-tick): tray with Show, About and Quit; close hides to the tray and the tick continues; without a tray, close quits. R9.3 done (PR: feat/loopback): the systemd unit when installed, else a pw-loopback child of the window, restored at start; the line-in source is found by its active port's name and description rather than the port type, which the protocol client does not carry.
 - [ ] R10: the sections, with headless tests naming the defect each prevents. R10.1, R10.2 and R10.4 done (PRs: feat/tray-and-tick, feat/sections): the list with Switch to, Connect, Disconnect, Move up and Move down on the selected row, the auto-switch check, and the playing device's volume and mute; the Microphone section; the Settings switches. R10.3 done (PR: feat/headset-section): the Headset card in Settings, with the battery and the idle timeout committed on Enter. The desktop steps in Settings remain.
 - [ ] D9, D10, R11: desktop steps, the volume keys bound and restored by the program, and single instance. D10 done (PR: feat/single-instance): an flock and a Unix socket in the runtime directory; a second launch shows the first window; `--vol-up`, `--vol-down` and `--connect` are answered by the running instance and act on their own only when none runs. D9 and R11 remain.
 - [ ] The original is retired from ag-scripts' README with a pointer here.

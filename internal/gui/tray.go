@@ -55,9 +55,10 @@ func (u *ui) onClose() {
 	u.sh.Window.Hide()
 }
 
-// quit stops the tick and exits.
+// quit stops the tick and the loopback child, and exits.
 func (u *ui) quit() {
 	u.loop.halt()
+	u.sw.Close()
 	if u.sh.App != nil {
 		u.sh.App.Quit()
 	}

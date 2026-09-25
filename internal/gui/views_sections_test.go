@@ -12,6 +12,7 @@ import (
 	"github.com/ushineko/ototo/internal/config"
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/devices"
+	"github.com/ushineko/ototo/internal/loopback"
 )
 
 func loaded(u *ui) {
@@ -109,6 +110,22 @@ func TestTheHeadsetCardSaysWhatItCannotDo(t *testing.T) {
 	cfg, _, err = config.Load("")
 	require.NoError(t, err)
 	require.Equal(t, 15, cfg.ArctisIdleMinutes, "an out-of-range value was written")
+}
+
+// TestTheLoopbackCardNamesItsTier: no line-in is said plainly; with one,
+// the card says whether systemd or this window runs it.
+func TestTheLoopbackCardNamesItsTier(t *testing.T) {
+	u := testUI(t)
+	loaded(u)
+	require.Contains(t, strings.Join(fynetest.Texts(u.loopbackCard()), "\n"), "No line-in source found")
+	u.loopback = loopback.State{Source: "alsa_input.x-linein", Mode: loopback.ModeService, Active: true}
+	card := u.loopbackCard()
+	require.True(t, fynetest.FindCheck(card).Checked)
+	require.Contains(t, strings.Join(fynetest.Tips(card), "\n"), loopback.ServiceName)
+	u.loopback = loopback.State{Source: "alsa_input.x-linein", Mode: loopback.ModeDirect}
+	card = u.loopbackCard()
+	require.False(t, fynetest.FindCheck(card).Checked)
+	require.Contains(t, strings.Join(fynetest.Tips(card), "\n"), "pw-loopback")
 }
 
 // TestTheVolumeCardShowsThePlayingDevice: the slider carries the level of
