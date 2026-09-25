@@ -9,7 +9,7 @@ import (
 	"github.com/ushineko/fynedesygn/table"
 	"github.com/ushineko/fynedesygn/widgets"
 
-	"github.com/ushineko/ototo/internal/core"
+	"github.com/ushineko/ototo/internal/devices"
 )
 
 // outputsTableHeight keeps the section still while a person reads it: a table
@@ -36,9 +36,9 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 	}
 
 	t := table.New()
-	t.Header("", "Output", "State", "Volume", "Name")
-	for _, o := range res.Outputs {
-		t.Row(outputStatus(o), outputCells(o)...)
+	t.Header("", "Device", "State", "Volume", "Id")
+	for _, d := range res.Devices {
+		t.Row(deviceStatus(d), deviceCells(d)...)
 	}
 
 	return container.NewVBox(
@@ -53,34 +53,44 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 	)
 }
 
-// outputStatus colours a row: the default output is good, a disconnected one
-// is a warning, the rest are plain.
-func outputStatus(o core.Output) fd.Status {
+// deviceStatus colours a row: the playing device is good, one that cannot
+// play is a warning, the rest are plain.
+func deviceStatus(d devices.Device) fd.Status {
 	switch {
-	case !o.Connected:
+	case !d.Connected:
 		return fd.StatusWarn
-	case o.Default:
+	case d.Default:
 		return fd.StatusGood
 	default:
 		return fd.StatusInfo
 	}
 }
 
-// outputCells is one table row, kept as a pure function because a table
+// deviceCells is one table row, kept as a pure function because a table
 // builds its cells only when it needs them and a test cannot reach them
-// through the widget.
-func outputCells(o core.Output) []string {
+// through the widget. The name already carries the port and the state the
+// way the original wrote them, so State says only what a person acts on:
+// away (no sink, connect it), disconnected (a sink with nothing plugged in),
+// or ready.
+func deviceCells(d devices.Device) []string {
 	mark := ""
-	if o.Default {
+	if d.Default {
 		mark = "playing"
 	}
-	state := "connected"
-	if !o.Connected {
+	state := "ready"
+	switch {
+	case !d.Online:
+		state = "away"
+	case !d.Connected:
 		state = "disconnected"
 	}
-	vol := fmt.Sprintf("%d%%", o.Volume)
-	if o.Mute {
+	vol := ""
+	switch {
+	case !d.Online:
+	case d.Mute:
 		vol = "muted"
+	default:
+		vol = fmt.Sprintf("%d%%", d.Volume)
 	}
-	return []string{mark, widgets.OrNone(o.Description, o.Name), state, vol, o.Name}
+	return []string{mark, d.Name, state, vol, d.ID}
 }

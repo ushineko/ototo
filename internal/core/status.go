@@ -8,21 +8,12 @@ import (
 	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/buildinfo"
 	"github.com/ushineko/ototo/internal/config"
+	"github.com/ushineko/ototo/internal/devices"
 )
 
 // StatusRequest asks what this machine has.
 type StatusRequest struct {
 	Request
-}
-
-// Output is one sink as the status reports it.
-type Output struct {
-	Name        string
-	Description string
-	Default     bool
-	Connected   bool
-	Mute        bool
-	Volume      int
 }
 
 // StatusResult is what this machine has: the settings, the sound server and
@@ -39,8 +30,11 @@ type StatusResult struct {
 	// Server is the sound server, when one answered; ServerError is why not.
 	Server      audio.Server
 	ServerError string
-	Outputs     []Output
-	Inputs      int
+	// Devices is the list as the window shows it (spec R4): the priority
+	// order first, remembered devices holding their place, then the rest.
+	// Without a server it holds only what the settings remember.
+	Devices []devices.Device
+	Inputs  int
 }
 
 // Status reports the settings, the sound server and the outputs.
@@ -62,9 +56,15 @@ func Status(_ context.Context, req StatusRequest) (StatusResult, error) {
 		req.Events.logf(LevelWarn, "settings file %s: %v", path, statErr)
 	}
 
+	// The Bluetooth cache and the headset arrive with R9; until then the
+	// list names a Bluetooth device by its address and treats the headset
+	// as off, which is what the original showed with the adapter down.
+	in := devices.Inputs{Priority: cfg.DevicePriority}
+
 	client, err := audio.Connect(req.Server)
 	if err != nil {
 		res.ServerError = err.Error()
+		res.Devices = devices.List(in)
 		req.Events.logf(LevelWarn, "%v", err)
 		return res, nil
 	}
@@ -73,25 +73,21 @@ func Status(_ context.Context, req StatusRequest) (StatusResult, error) {
 	srv, err := client.Server()
 	if err != nil {
 		res.ServerError = err.Error()
+		res.Devices = devices.List(in)
 		return res, nil
 	}
 	res.Server = srv
+	in.DefaultSink = srv.DefaultSink
 
 	sinks, err := client.Sinks()
 	if err != nil {
 		res.ServerError = err.Error()
+		res.Devices = devices.List(in)
 		return res, nil
 	}
-	for _, s := range sinks {
-		res.Outputs = append(res.Outputs, Output{
-			Name:        s.Name,
-			Description: s.Description,
-			Default:     s.Name == srv.DefaultSink,
-			Connected:   s.Connected(),
-			Mute:        s.Mute,
-			Volume:      s.VolumePercent,
-		})
-	}
+	in.Sinks = sinks
+	res.Devices = devices.List(in)
+
 	sources, err := client.Sources()
 	if err != nil {
 		res.ServerError = err.Error()

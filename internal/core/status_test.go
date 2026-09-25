@@ -30,6 +30,6 @@ func TestStatusAnswersWithNoSoundServer(t *testing.T) {
 	require.False(t, res.ConfigExists)
 	require.True(t, res.Config.OSDEnabled)
 	require.NotEmpty(t, res.ServerError)
-	require.Empty(t, res.Outputs)
+	require.Empty(t, res.Devices)
 	require.NotEmpty(t, warned, "the reason the server was not reached goes to the log")
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/core"
+	"github.com/ushineko/ototo/internal/devices"
 )
 
 /*
@@ -81,15 +82,18 @@ func TestALoadInProgressIsNotStartedTwice(t *testing.T) {
 	require.False(t, u.statusOK, "a second read ran while the first was in progress")
 }
 
-// TestOutputRowsSayWhatAPersonWouldAsk: the mark, the state and the volume
+// TestDeviceRowsSayWhatAPersonWouldAsk: the mark, the state and the volume
 // cells are the three facts a glance needs, asserted through the pure
 // function because the table builds cells only on a canvas.
-func TestOutputRowsSayWhatAPersonWouldAsk(t *testing.T) {
-	cells := outputCells(core.Output{Name: "alsa_output.x", Description: "Speakers", Default: true, Connected: true, Volume: 42})
-	require.Equal(t, []string{"playing", "Speakers", "connected", "42%", "alsa_output.x"}, cells)
+func TestDeviceRowsSayWhatAPersonWouldAsk(t *testing.T) {
+	cells := deviceCells(devices.Device{ID: "alsa_output.x", Name: "Speakers", Sink: "alsa_output.x", Online: true, Default: true, Connected: true, Volume: 42})
+	require.Equal(t, []string{"playing", "Speakers", "ready", "42%", "alsa_output.x"}, cells)
 
-	cells = outputCells(core.Output{Name: "bluez_output.y", Mute: true})
-	require.Equal(t, []string{"", "bluez_output.y", "disconnected", "muted", "bluez_output.y"}, cells)
+	cells = deviceCells(devices.Device{ID: "alsa_output.y", Name: "Line Out [Disconnected]", Sink: "alsa_output.y", Online: true, Mute: true})
+	require.Equal(t, []string{"", "Line Out [Disconnected]", "disconnected", "muted", "alsa_output.y"}, cells)
+
+	cells = deviceCells(devices.Device{ID: "bt:AA:BB:CC:DD:EE:FF", Name: "AirPods [Disconnected]"})
+	require.Equal(t, []string{"", "AirPods [Disconnected]", "away", "", "bt:AA:BB:CC:DD:EE:FF"}, cells)
 }
 
 // TestTheDefaultOutputIsNamedForAPerson: the status bar says "Speakers", not
@@ -97,9 +101,9 @@ func TestOutputRowsSayWhatAPersonWouldAsk(t *testing.T) {
 func TestTheDefaultOutputIsNamedForAPerson(t *testing.T) {
 	res := core.StatusResult{
 		Server:  audio.Server{DefaultSink: "alsa_output.x"},
-		Outputs: []core.Output{{Name: "alsa_output.x", Description: "Speakers", Default: true}},
+		Devices: []devices.Device{{ID: "alsa_output.x", Name: "Speakers", Sink: "alsa_output.x", Online: true, Default: true}},
 	}
 	require.Equal(t, "Speakers", defaultOutputText(res))
-	res.Outputs = nil
+	res.Devices = nil
 	require.Equal(t, "alsa_output.x", defaultOutputText(res))
 }
