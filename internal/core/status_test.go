@@ -20,6 +20,7 @@ func TestStatusAnswersWithNoSoundServer(t *testing.T) {
 
 	var warned []string
 	res, err := Status(context.Background(), StatusRequest{Request: Request{
+		Probes: &Probes{},
 		Events: Events{Log: func(l Level, m string) {
 			if l == LevelWarn {
 				warned = append(warned, m)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/config"
@@ -44,9 +45,6 @@ type Switcher struct {
 	Graph *graph.Graph
 	// Notifier receives the notifications; nil discards them.
 	Notifier notify.Notifier
-	// Bluetooth and Headset are the device model's inputs that R9 supplies.
-	Bluetooth []devices.Bluetooth
-	Headset   devices.Headset
 
 	dial func(server string) (server, error)
 
@@ -150,7 +148,13 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 	}
 	defer func() { _ = srv.Close() }()
 
-	list, err := s.list(srv, cfg)
+	probes := req.probes()
+	in := devices.Inputs{
+		Priority:  cfg.DevicePriority,
+		Bluetooth: probes.bluetooth(ctx),
+		Headset:   probes.headset(ctx),
+	}
+	list, err := s.list(srv, in)
 	if err != nil {
 		return SwitchResult{}, err
 	}
@@ -159,8 +163,13 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 		return SwitchResult{}, fmt.Errorf("%w %q", ErrNotFound, req.Target)
 	}
 	if !dev.Online {
-		// Connecting a Bluetooth device first is R9.1.
-		return SwitchResult{}, fmt.Errorf("%w: %s", ErrNotConnected, dev.Name)
+		if dev.MAC == "" {
+			return SwitchResult{}, fmt.Errorf("%w: %s", ErrNotConnected, dev.Name)
+		}
+		dev, err = s.connectAndWait(ctx, srv, in, probes, dev, req.Events)
+		if err != nil {
+			return SwitchResult{}, err
+		}
 	}
 	if req.Manual {
 		s.mu.Lock()
@@ -171,7 +180,7 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 }
 
 // list reads the sinks and builds the device list.
-func (s *Switcher) list(srv server, cfg config.Config) ([]devices.Device, error) {
+func (s *Switcher) list(srv server, in devices.Inputs) ([]devices.Device, error) {
 	info, err := srv.Server()
 	if err != nil {
 		return nil, err
@@ -180,10 +189,54 @@ func (s *Switcher) list(srv server, cfg config.Config) ([]devices.Device, error)
 	if err != nil {
 		return nil, err
 	}
-	return devices.List(devices.Inputs{
-		Sinks: sinks, DefaultSink: info.DefaultSink, Priority: cfg.DevicePriority,
-		Bluetooth: s.Bluetooth, Headset: s.Headset,
-	}), nil
+	in.Sinks, in.DefaultSink = sinks, info.DefaultSink
+	return devices.List(in), nil
+}
+
+// How long a Bluetooth device is given to produce a sink after Connect:
+// twenty polls half a second apart, as the original.
+const (
+	connectPoll     = 500 * time.Millisecond
+	connectAttempts = 20
+)
+
+// ErrConnectTimeout is a device that BlueZ connected but the sound server
+// never showed.
+var ErrConnectTimeout = errors.New("the device connected but no sink appeared")
+
+/*
+connectAndWait is R5.5's offline branch: ask BlueZ to connect the device,
+then poll the sinks until one with the device's id appears, and return that
+row. "Connecting..." goes out first, because a Bluetooth connect takes
+seconds and the person who pressed the key would otherwise press it again.
+*/
+func (s *Switcher) connectAndWait(ctx context.Context, srv server, in devices.Inputs, probes Probes,
+	dev devices.Device, ev Events) (devices.Device, error) {
+	if probes.Connect == nil {
+		return dev, fmt.Errorf("%w: %s, and there is no Bluetooth adapter to connect it with", ErrNotConnected, dev.Name)
+	}
+	_, _ = s.notifier().Send(notify.Notification{Title: "Connecting...", Body: "Connecting to " + dev.Name})
+	ev.logf(LevelInfo, "connecting %s (%s)", dev.Name, dev.MAC)
+	if err := probes.Connect(ctx, dev.MAC); err != nil {
+		return dev, fmt.Errorf("connection failed: %w", err)
+	}
+	for range connectAttempts {
+		select {
+		case <-ctx.Done():
+			return dev, fmt.Errorf("waiting for %s: %w", dev.Name, ctx.Err())
+		case <-time.After(connectPoll):
+		}
+		list, err := s.list(srv, in)
+		if err != nil {
+			return dev, err
+		}
+		for _, d := range list {
+			if d.ID == dev.ID && d.Online {
+				return d, nil
+			}
+		}
+	}
+	return dev, fmt.Errorf("%w: %s", ErrConnectTimeout, dev.Name)
 }
 
 /*

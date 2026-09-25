@@ -140,7 +140,7 @@ func (s *Switcher) AutoSwitch(ctx context.Context, req AutoSwitchRequest) (AutoS
 	}
 	defer func() { _ = srv.Close() }()
 
-	sn, err := s.snapshot(ctx, srv, cfg, req.Events)
+	sn, err := s.snapshot(ctx, srv, cfg, req.probes(), req.Events)
 	if err != nil {
 		return res, err
 	}
@@ -167,7 +167,7 @@ func (s *Switcher) AutoSwitch(ctx context.Context, req AutoSwitchRequest) (AutoS
 }
 
 // snapshot reads what decide needs.
-func (s *Switcher) snapshot(ctx context.Context, srv server, cfg config.Config, ev Events) (snapshot, error) {
+func (s *Switcher) snapshot(ctx context.Context, srv server, cfg config.Config, probes Probes, ev Events) (snapshot, error) {
 	info, err := srv.Server()
 	if err != nil {
 		return snapshot{}, err
@@ -181,7 +181,7 @@ func (s *Switcher) snapshot(ctx context.Context, srv server, cfg config.Config, 
 		jdspBroken:  s.JamesDSPBroken(),
 		list: devices.List(devices.Inputs{
 			Sinks: sinks, DefaultSink: info.DefaultSink, Priority: cfg.DevicePriority,
-			Bluetooth: s.Bluetooth, Headset: s.Headset,
+			Bluetooth: probes.bluetooth(ctx), Headset: probes.headset(ctx),
 		}),
 	}
 	sn.currentValid, sn.jdspSink = currentValid(sinks, sn.list, info.DefaultSink)
