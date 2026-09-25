@@ -26,6 +26,7 @@ import (
 	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/buildinfo"
 	"github.com/ushineko/ototo/internal/core"
+	"github.com/ushineko/ototo/internal/desktop"
 	"github.com/ushineko/ototo/internal/gui"
 	"github.com/ushineko/ototo/internal/instance"
 	"github.com/ushineko/ototo/internal/notify"
@@ -49,7 +50,8 @@ func run() int {
 	volUp := flag.Bool("vol-up", false, "turn the playing output up one step and exit")
 	volDown := flag.Bool("vol-down", false, "turn the playing output down one step and exit")
 	desktopStep := flag.String("desktop", "",
-		"install or uninstall the desktop steps (autostart, the indicator's window rule, the volume keys) and exit")
+		"install or uninstall the desktop steps (autostart, the indicator's window rule, the volume keys), "+
+			"or bind KEY ARGS... / unbind KEY for a hotkey of your own, and exit")
 	version := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -82,7 +84,7 @@ func run() int {
 		return oneShot(base, *connect, *volDown)
 	}
 	if *desktopStep != "" {
-		return desktopFlag(base, *desktopStep)
+		return desktopFlag(base, *desktopStep, flag.Args())
 	}
 
 	return gui.Run(gui.Options{
@@ -165,15 +167,17 @@ func oneShot(base core.Request, connect string, volDown bool) int {
 
 // desktopFlag is --desktop install|uninstall: every step at once, for a
 // person who wants the whole set without opening Settings.
-func desktopFlag(base core.Request, verb string) int {
+func desktopFlag(base core.Request, verb string, rest []string) int {
 	var on bool
 	switch verb {
 	case "install":
 		on = true
 	case "uninstall":
 		on = false
+	case "bind", "unbind":
+		return bindFlag(verb, rest)
 	default:
-		fmt.Fprintln(os.Stderr, "ototo: --desktop takes install or uninstall, not", verb)
+		fmt.Fprintln(os.Stderr, "ototo: --desktop takes install, uninstall, bind or unbind, not", verb)
 		return 2
 	}
 	st, err := core.SetDesktop(context.Background(), core.SetDesktopRequest{Request: base, Autostart: &on, IndicatorRule: &on, VolumeKeys: &on})
@@ -182,5 +186,48 @@ func desktopFlag(base core.Request, verb string) int {
 		fmt.Fprintln(os.Stderr, "ototo:", err)
 		return 1
 	}
+	return 0
+}
+
+/*
+bindFlag is --desktop bind KEY ARGS... and --desktop unbind KEY: a key of the
+person's own that runs ototo with ARGS, such as `bind Meta+A --connect
+"AirPods Pro"` or `bind Meta+Num++ --vol-up`. A command shortcut that held
+the key is released and named.
+*/
+func bindFlag(verb string, rest []string) int {
+	if len(rest) == 0 {
+		fmt.Fprintf(os.Stderr, "ototo: --desktop %s takes a key, such as Meta+A\n", verb)
+		return 2
+	}
+	key := rest[0]
+	ctx := context.Background()
+	if verb == "unbind" {
+		had, err := desktop.Unbind(ctx, key)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ototo:", err)
+			return 1
+		}
+		if !had {
+			fmt.Printf("%s was not bound to ototo\n", key)
+			return 0
+		}
+		fmt.Printf("%s unbound\n", key)
+		return 0
+	}
+	args := rest[1:]
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "ototo: --desktop bind takes the key and what to run, such as --connect \"AirPods Pro\" or --vol-up")
+		return 2
+	}
+	released, err := desktop.Bind(ctx, key, args)
+	for _, r := range released {
+		fmt.Printf("released %s from %s\n", key, r)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ototo:", err)
+		return 1
+	}
+	fmt.Printf("%s runs: ototo %s\n", key, strings.Join(args, " "))
 	return 0
 }

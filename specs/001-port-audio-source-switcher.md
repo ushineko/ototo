@@ -352,6 +352,12 @@ practice rather than by design.
 - R11.4 `uninstall.sh` names the switch as the way to put the keys back, and
   `--desktop uninstall` turns it off along with the autostart entry and the
   KWin rule.
+- R11.6 Keys of the person's own: `--desktop bind KEY ARGS...` registers a
+  command shortcut that runs ototo with ARGS, releasing a command shortcut
+  that held the key; `--desktop unbind KEY` removes it. The original's "Copy
+  Hotkey Command" left the shortcut for the person to make. (Done, PR:
+  feat/hotkeys; a released key is asked about until kglobalaccel reports it
+  free, since the unregister is answered before the key is let go.)
 - R11.5 With the switch off, the indicator still appears on volume changes
   that the subscription reports (R8.3), because Plasma's own keys change the
   sink volume and the change is what the indicator listens for. The switch
