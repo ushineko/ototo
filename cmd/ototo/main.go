@@ -48,6 +48,8 @@ func run() int {
 		"switch to this device (a priority id, a sink name, or part of a name) and exit")
 	volUp := flag.Bool("vol-up", false, "turn the playing output up one step and exit")
 	volDown := flag.Bool("vol-down", false, "turn the playing output down one step and exit")
+	desktopStep := flag.String("desktop", "",
+		"install or uninstall the desktop steps (autostart, the indicator's window rule) and exit")
 	version := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -78,6 +80,9 @@ func run() int {
 
 	if *connect != "" || *volUp || *volDown {
 		return oneShot(base, *connect, *volDown)
+	}
+	if *desktopStep != "" {
+		return desktopFlag(base, *desktopStep)
 	}
 
 	return gui.Run(gui.Options{
@@ -155,5 +160,27 @@ func oneShot(base core.Request, connect string, volDown bool) int {
 		state = "muted"
 	}
 	fmt.Printf("%s: %s\n", res.Sink, state)
+	return 0
+}
+
+// desktopFlag is --desktop install|uninstall: every step at once, for a
+// person who wants the whole set without opening Settings.
+func desktopFlag(base core.Request, verb string) int {
+	var on bool
+	switch verb {
+	case "install":
+		on = true
+	case "uninstall":
+		on = false
+	default:
+		fmt.Fprintln(os.Stderr, "ototo: --desktop takes install or uninstall, not", verb)
+		return 2
+	}
+	st, err := core.SetDesktop(context.Background(), core.SetDesktopRequest{Request: base, Autostart: &on, IndicatorRule: &on})
+	fmt.Printf("autostart: %s\nindicator window rule: %s\n", onOff(st.Autostart), onOff(st.IndicatorRule))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ototo:", err)
+		return 1
+	}
 	return 0
 }

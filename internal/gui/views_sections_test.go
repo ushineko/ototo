@@ -77,8 +77,8 @@ func TestASettingsSwitchWritesOneKey(t *testing.T) {
 	loaded(u)
 	body := u.buildSettings()
 	checks := fynetest.All[*widget.Check](body)
-	require.Len(t, checks, 3)
-	for _, c := range checks {
+	require.Len(t, checks, 5, "three settings switches and two desktop steps")
+	for _, c := range checks[:3] {
 		require.True(t, c.Checked)
 	}
 	checks[1].SetChecked(false) // notifications

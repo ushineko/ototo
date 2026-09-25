@@ -205,7 +205,7 @@ source, and the port's behaviour must match it.
   `device.serial`, `device.bus_path`, `device.name`, `alsa.card` with the
   sink; empty sink values are skipped; no match means no change.
 
-### R8. Volume indicator (OSD)
+### R8. Volume indicator (OSD) (done)
 
 The original's OSD is a 380 x 132 frameless, translucent, always-on-top,
 non-activating window centred on the screen the pointer is on, showing a
@@ -370,10 +370,10 @@ Port (later PRs, one per requirement group):
 - [x] R3.3, R3.4: write side and subscription, tested against the live server where present (PR: feat/audio-write-and-watch; the reconnect path is exercised only by the no-server test, since restarting the developer's sound server from a test is not acceptable).
 - [x] R4: device model, with table-driven tests over synthetic sink property sets (no real MACs). (PR: feat/device-model. The Bluetooth cache and the headset battery are inputs the model takes; they are supplied by R9, so until then a Bluetooth device is named by its address and the Arctis reads as off.)
 - [x] R5, R6, R7: switching, auto-switching, JamesDSP and microphone, with the algorithm tested over a fake server snapshot and a fake graph. (PR: feat/switching. `--connect`, `--vol-up` and `--vol-down` act on the server directly until D10 forwards them to the running instance. One deviation from the original, on purpose: the fallback that picks any connected sink never picks the JamesDSP sink itself, which the original's sink order could.)
-- [ ] R8: the indicator, after the R8.4 experiment is recorded here.
+- [x] R8: the indicator, after the R8.4 experiment is recorded here. (PR: feat/indicator. A glance window with one meter, held 1.5 s, placed on the pointer's screen through KWin's scripting at each show; shown by the hotkey path and by the sink subscription, debounced and deduplicated. The window rule is a switch in Settings and part of `--desktop install`; it needs fynedesygn's titled rule, pinned at the merged commit until 0.1.44 is tagged.)
 - [ ] R9: Bluetooth, headset, loopback, tray. R9.1 and R9.2 done (PR: feat/bluetooth-headset): the adapter over the system bus and headsetcontrol are the device model's inputs, and an away Bluetooth device is connected and waited for before the switch. The device path is found by address rather than assumed under hci0. R9.4 done (PR: feat/tray-and-tick): tray with Show, About and Quit; close hides to the tray and the tick continues; without a tray, close quits. R9.3 done (PR: feat/loopback): the systemd unit when installed, else a pw-loopback child of the window, restored at start; the line-in source is found by its active port's name and description rather than the port type, which the protocol client does not carry.
 - [ ] R10: the sections, with headless tests naming the defect each prevents. R10.1, R10.2 and R10.4 done (PRs: feat/tray-and-tick, feat/sections): the list with Switch to, Connect, Disconnect, Move up and Move down on the selected row, the auto-switch check, and the playing device's volume and mute; the Microphone section; the Settings switches. R10.3 done (PR: feat/headset-section): the Headset card in Settings, with the battery and the idle timeout committed on Enter. The desktop steps in Settings remain.
-- [ ] D9, D10, R11: desktop steps, the volume keys bound and restored by the program, and single instance. D10 done (PR: feat/single-instance): an flock and a Unix socket in the runtime directory; a second launch shows the first window; `--vol-up`, `--vol-down` and `--connect` are answered by the running instance and act on their own only when none runs. D9 and R11 remain.
+- [ ] D9, D10, R11: desktop steps, the volume keys bound and restored by the program, and single instance. D10 done (PR: feat/single-instance): an flock and a Unix socket in the runtime directory; a second launch shows the first window; `--vol-up`, `--vol-down` and `--connect` are answered by the running instance and act on their own only when none runs. D9 done (PR: feat/indicator): autostart and the indicator's window rule are switches in Settings and `--desktop install|uninstall`. R11 remains.
 - [ ] The original is retired from ag-scripts' README with a pointer here.
 
 ## Risks & Assumptions
