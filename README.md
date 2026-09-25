@@ -13,7 +13,7 @@ done this job on a KDE Plasma desktop through thirteen releases, and it
 replaces it. The behaviour is that program's; the spec is
 [`specs/001`](specs/001-port-audio-source-switcher.md).
 
-**Version**: 0.1.0
+**Version**: 0.1.1
 
 ![The Outputs section. A Sound server card lists the server, the default
 output and input, and three inputs. A Volume card for "Example Audio DAC -
@@ -205,6 +205,22 @@ throwaway home and runtime directory, so nothing of the machine that takes
 them appears in the repository.
 
 ## Changelog
+
+### 0.1.1
+
+- **The launcher entry runs ototo.** It said `Exec=ototo-gui`, the binary from
+  before the two became one, so the menu entry and a taskbar pin ran nothing.
+  The 0.1.0 tarball and Arch package carried it.
+- **Keys of your own.** `ototo --desktop bind Meta+A --connect "AirPods Pro"`
+  registers a command shortcut that runs ototo and releases a custom shortcut
+  that held the key; `--desktop unbind` removes it. The original's "Copy
+  Hotkey Command" left the shortcut for you to make.
+- **Connect brings a Bluetooth device up without switching.** It did what
+  Switch to does; now it connects and waits for the sink, and the order or
+  Switch to decides what plays.
+- **Screenshots** over a demo sound server, `--server demo:<file>`, so the
+  README shows invented devices. The README says what is mandatory, where
+  this was tested, and that JamesDSP is not required.
 
 ### 0.1.0
 
