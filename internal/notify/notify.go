@@ -24,8 +24,18 @@ const (
 	SoundNew    = "message-new-instant"
 )
 
+// What a notification is about, so a front end can route one kind
+// somewhere other than the desktop's notification service.
+const (
+	KindSwitched   = "switched"   // the output changed
+	KindConnecting = "connecting" // a Bluetooth connect is under way
+	KindFailure    = "failure"    // something did not happen
+)
+
 // Notification is one message.
 type Notification struct {
+	// Kind is one of the Kind constants; empty is a plain message.
+	Kind  string
 	Title string
 	Body  string
 	// Icon is a theme icon name; empty means IconAudio.

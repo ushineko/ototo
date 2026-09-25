@@ -12,6 +12,7 @@ import (
 type DesktopState struct {
 	Autostart     bool
 	IndicatorRule bool
+	VolumeKeys    bool
 	// Errors are why a state could not be read, one per item, or nothing.
 	Errors []string
 }
@@ -26,6 +27,9 @@ func DesktopStatus(_ context.Context) DesktopState {
 	if st.IndicatorRule, err = desktop.RuleInstalled(); err != nil {
 		st.Errors = append(st.Errors, err.Error())
 	}
+	if st.VolumeKeys, err = desktop.VolumeKeysInstalled(); err != nil {
+		st.Errors = append(st.Errors, err.Error())
+	}
 	return st
 }
 
@@ -35,6 +39,7 @@ type SetDesktopRequest struct {
 	Request
 	Autostart     *bool
 	IndicatorRule *bool
+	VolumeKeys    *bool
 }
 
 /*
@@ -69,6 +74,19 @@ func SetDesktop(ctx context.Context, req SetDesktopRequest) (DesktopState, error
 			errs = append(errs, fmt.Errorf("indicator rule: %w", err))
 		} else {
 			req.Events.logf(LevelInfo, "indicator window rule removed")
+		}
+	}
+	if req.VolumeKeys != nil {
+		if *req.VolumeKeys {
+			if err := desktop.InstallVolumeKeys(ctx); err != nil {
+				errs = append(errs, fmt.Errorf("volume keys: %w", err))
+			} else {
+				req.Events.logf(LevelInfo, "the volume keys run ototo")
+			}
+		} else if _, err := desktop.RemoveVolumeKeys(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("volume keys: %w", err))
+		} else {
+			req.Events.logf(LevelInfo, "the volume keys are given back")
 		}
 	}
 	return DesktopStatus(ctx), errors.Join(errs...)

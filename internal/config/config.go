@@ -48,6 +48,9 @@ type Config struct {
 	// SwitchNotifications sends a desktop notification on an automatic switch.
 	// Failure notifications are sent regardless.
 	SwitchNotifications bool `json:"switch_notifications"`
+	// SwitchInOSD shows a switch in the volume indicator instead of a
+	// desktop notification.
+	SwitchInOSD bool `json:"switch_in_osd"`
 	// LoopbackEnabled plays the line-in source through the current output.
 	LoopbackEnabled bool `json:"loopback_enabled"`
 	// MoveStreams moves playing audio to the new output on a switch.

@@ -150,7 +150,7 @@ func (s *Switcher) Switch(ctx context.Context, req SwitchRequest) (SwitchResult,
 	res, err := s.switchByName(ctx, req)
 	if err != nil {
 		_, _ = s.notifier().Send(notify.Notification{
-			Title: "Switch Failed", Body: err.Error(), Icon: notify.IconFailure,
+			Kind: notify.KindFailure, Title: "Switch Failed", Body: err.Error(), Icon: notify.IconFailure,
 		})
 	}
 	return res, err
@@ -234,7 +234,7 @@ func (s *Switcher) connectAndWait(ctx context.Context, srv server, in devices.In
 	if probes.Connect == nil {
 		return dev, fmt.Errorf("%w: %s, and there is no Bluetooth adapter to connect it with", ErrNotConnected, dev.Name)
 	}
-	_, _ = s.notifier().Send(notify.Notification{Title: "Connecting...", Body: "Connecting to " + dev.Name})
+	_, _ = s.notifier().Send(notify.Notification{Kind: notify.KindConnecting, Title: "Connecting...", Body: "Connecting to " + dev.Name})
 	ev.logf(LevelInfo, "connecting %s (%s)", dev.Name, dev.MAC)
 	if err := probes.Connect(ctx, dev.MAC); err != nil {
 		return dev, fmt.Errorf("connection failed: %w", err)
@@ -361,6 +361,7 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 			input = res.MicName
 		}
 		_, err := s.notifier().Send(notify.Notification{
+			Kind:  notify.KindSwitched,
 			Title: "Audio Switched",
 			Body:  "Output: " + dev.Name + "\nInput: " + input,
 		})

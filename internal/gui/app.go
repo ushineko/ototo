@@ -181,11 +181,13 @@ func Run(o Options) int {
 	} else {
 		defer srv.Close()
 	}
+	router := routingNotifier{u: u}
 	if bus, err := notify.Session(); err == nil {
-		u.sw.Notifier = bus
+		router.bus = bus
 	} else {
 		fmt.Fprintln(os.Stderr, "ototo: notifications unavailable:", err)
 	}
+	u.sw.Notifier = router
 	// A TERM or an INT ends the program the way Quit does, with the tick,
 	// the watcher and the loopback child stopped. Without this the tray's
 	// signal handling swallows TERM and the process has to be killed.
