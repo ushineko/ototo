@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ushineko/ototo/internal/config"
@@ -170,5 +171,38 @@ func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, erro
 	if err := config.Save(path, cfg); err != nil {
 		return cfg, err
 	}
+	return cfg, nil
+}
+
+// SetHeadsetIdleRequest sets the Arctis idle timeout.
+type SetHeadsetIdleRequest struct {
+	Request
+	// Minutes is 0 for never, else 1..90.
+	Minutes int
+}
+
+// SetHeadsetIdle writes arctis_idle_minutes and applies it to the headset
+// (R9.2). The setting is written first: a headset that is off right now
+// still gets the value the next time it is on and the setting is applied.
+func SetHeadsetIdle(ctx context.Context, req SetHeadsetIdleRequest) (config.Config, error) {
+	if req.Minutes < 0 || req.Minutes > 90 {
+		return config.Config{}, fmt.Errorf("the idle timeout is 0 (never) or 1 to 90 minutes, not %d", req.Minutes)
+	}
+	cfg, path, err := config.Load(req.ConfigPath)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.ArctisIdleMinutes = req.Minutes
+	if err := config.Save(path, cfg); err != nil {
+		return cfg, err
+	}
+	probes := req.probes()
+	if probes.SetIdle == nil {
+		return cfg, errors.New("headsetcontrol is not installed, so the timeout was saved but not applied")
+	}
+	if err := probes.SetIdle(ctx, req.Minutes); err != nil {
+		return cfg, fmt.Errorf("the timeout was saved but not applied: %w", err)
+	}
+	req.Events.logf(LevelInfo, "headset idle timeout set to %d minutes", req.Minutes)
 	return cfg, nil
 }

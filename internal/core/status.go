@@ -38,6 +38,11 @@ type StatusResult struct {
 	// Sources are the inputs by name and description, for the microphone
 	// editor (R10.2).
 	Sources []Source
+	// Headset is what headsetcontrol reported (R9.2), for the Headset card.
+	Headset devices.Headset
+	// HeadsetTool says whether headsetcontrol is available at all, which is
+	// the difference between "off" and "cannot tell".
+	HeadsetTool bool
 }
 
 // Source is one input.
@@ -71,6 +76,8 @@ func Status(ctx context.Context, req StatusRequest) (StatusResult, error) {
 		Bluetooth: probes.bluetooth(ctx),
 		Headset:   probes.headset(ctx),
 	}
+	res.Headset = in.Headset
+	res.HeadsetTool = probes.Headset != nil
 
 	client, err := audio.Connect(req.Server)
 	if err != nil {

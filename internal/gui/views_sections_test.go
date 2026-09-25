@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"strings"
 	"testing"
 
 	"fyne.io/fyne/v2/widget"
@@ -85,6 +86,20 @@ func TestASettingsSwitchWritesOneKey(t *testing.T) {
 	require.False(t, cfg.SwitchNotifications)
 	require.True(t, cfg.MoveStreams)
 	require.True(t, cfg.OSDEnabled)
+}
+
+// TestTheHeadsetCardSaysWhatItCannotDo: no tool means no control, and the
+// headset being off is a state the card names rather than hides.
+func TestTheHeadsetCardSaysWhatItCannotDo(t *testing.T) {
+	u := testUI(t)
+	loaded(u)
+	require.Contains(t, strings.Join(fynetest.Texts(u.headsetCard()), "\n"), "headsetcontrol is not installed")
+	u.status.HeadsetTool = true
+	texts := strings.Join(fynetest.Texts(u.headsetCard()), "\n")
+	require.Contains(t, texts, "not detected")
+	u.status.Headset = devices.Headset{Detected: true, Battery: "87%"}
+	require.Contains(t, strings.Join(fynetest.Texts(u.headsetCard()), "\n"), "87%")
+	require.Equal(t, "0", fynetest.FindEntry(u.headsetCard()).Text)
 }
 
 // TestTheVolumeCardShowsThePlayingDevice: the slider carries the level of

@@ -51,6 +51,27 @@ func TestTheSettingsWritesLandInOneFile(t *testing.T) {
 	require.Equal(t, cfg, saved)
 }
 
+// TestTheIdleTimeoutIsSavedThenApplied: the value lands in the file even
+// when the tool cannot apply it, and the error says which half happened.
+func TestTheIdleTimeoutIsSavedThenApplied(t *testing.T) {
+	w := newWorld(t, false)
+	req := w.req()
+	var applied []int
+	req.Probes.SetIdle = func(_ context.Context, m int) error { applied = append(applied, m); return nil }
+	cfg, err := SetHeadsetIdle(context.Background(), SetHeadsetIdleRequest{Request: req, Minutes: 15})
+	require.NoError(t, err)
+	require.Equal(t, 15, cfg.ArctisIdleMinutes)
+	require.Equal(t, []int{15}, applied)
+
+	_, err = SetHeadsetIdle(context.Background(), SetHeadsetIdleRequest{Request: req, Minutes: 91})
+	require.Error(t, err)
+
+	req.Probes.SetIdle = nil
+	cfg, err = SetHeadsetIdle(context.Background(), SetHeadsetIdleRequest{Request: req, Minutes: 30})
+	require.ErrorContains(t, err, "not applied")
+	require.Equal(t, 30, cfg.ArctisIdleMinutes, "the value was not saved when the tool was absent")
+}
+
 // TestSetVolumeFollowsTheRouting: like the keys, the slider acts on the
 // hardware sink behind JamesDSP, and mute is a separate write.
 func TestSetVolumeFollowsTheRouting(t *testing.T) {
