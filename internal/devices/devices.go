@@ -100,6 +100,15 @@ func macIn(s string) string {
 	return strings.ToUpper(strings.ReplaceAll(m[1], "_", ":"))
 }
 
+// plainPunctuation replaces the typographic quotes a phone writes into a
+// Bluetooth alias ("Papa’s AirPods") with the plain ones. The window's font
+// does not carry the curly forms, and a glyph the font lacks draws from a
+// fallback face that breaks the row it is in (fynedesygn quirk 19).
+var plainPunctuation = strings.NewReplacer("’", "'", "‘", "'", "“", `"`, "”", `"`, "–", "-", "—", "-")
+
+// Plain is a name with its typographic punctuation made plain.
+func Plain(name string) string { return plainPunctuation.Replace(name) }
+
 // DisplayName is R4.2 without the suffixes: the alias for a Bluetooth sink,
 // then vendor and product, then the description, then the sink name.
 func DisplayName(sink audio.Device, aliases map[string]string) string {
@@ -133,7 +142,7 @@ func DisplayName(sink audio.Device, aliases map[string]string) string {
 	if name == "" {
 		name = sink.Name
 	}
-	return name
+	return Plain(name)
 }
 
 // isHeadset says whether a display name is the SteelSeries headset the
@@ -259,7 +268,7 @@ func offline(id string, aliases map[string]string) Device {
 	if mac, ok := strings.CutPrefix(id, BluetoothPrefix); ok {
 		d.MAC = mac
 		if alias := aliases[mac]; alias != "" {
-			d.Name = alias
+			d.Name = Plain(alias)
 		}
 	}
 	d.Name += " [Disconnected]"

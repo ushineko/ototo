@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -54,6 +55,7 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 		widgets.Card("Volume indicator",
 			widgets.WithTip(osd, "The small panel that appears when the volume changes. Off, the desktop's own "+
 				"indicator is all you see."),
+			u.osdSizeRow(),
 		),
 		u.headsetCard(),
 		u.loopbackCard(),
@@ -62,6 +64,22 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 			widgets.FactRow("Path", u.status.ConfigPath, fd.StatusInfo),
 		),
 	)
+}
+
+// osdSizeRow is the indicator's text size, committed on Enter.
+func (u *ui) osdSizeRow() fyne.CanvasObject {
+	size := widget.NewEntry()
+	size.Validator = forms.IntRange(core.OSDTextSizeMin, core.OSDTextSizeMax)
+	size.SetText(strconv.Itoa(u.status.Config.OSDTextSize))
+	size.OnSubmitted = func(text string) {
+		if n, err := strconv.Atoi(strings.TrimSpace(text)); err == nil && n != u.status.Config.OSDTextSize {
+			u.setSwitches(core.SetSwitchesRequest{OSDTextSize: &n})
+		}
+	}
+	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Indicator text size"), nil,
+		widgets.FixedWidth(size, forms.NumericWidth)),
+		fmt.Sprintf("Points, %d to %d. Press Enter to apply; the next change of volume shows it.",
+			core.OSDTextSizeMin, core.OSDTextSizeMax))
 }
 
 /*

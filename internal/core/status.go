@@ -9,6 +9,7 @@ import (
 	"github.com/ushineko/ototo/internal/buildinfo"
 	"github.com/ushineko/ototo/internal/config"
 	"github.com/ushineko/ototo/internal/devices"
+	"github.com/ushineko/ototo/internal/graph"
 )
 
 // StatusRequest asks what this machine has.
@@ -30,6 +31,10 @@ type StatusResult struct {
 	// Server is the sound server, when one answered; ServerError is why not.
 	Server      audio.Server
 	ServerError string
+	// Playing is the hardware sink that is playing: the default, or the
+	// sink JamesDSP plays into when the default is JamesDSP (R6.3). The
+	// device with this sink is the one marked Default in Devices.
+	Playing string
 	// Devices is the list as the window shows it (spec R4): the priority
 	// order first, remembered devices holding their place, then the rest.
 	// Without a server it holds only what the settings remember.
@@ -95,7 +100,13 @@ func Status(ctx context.Context, req StatusRequest) (StatusResult, error) {
 		return res, nil
 	}
 	res.Server = srv
-	in.DefaultSink = srv.DefaultSink
+	res.Playing = srv.DefaultSink
+	if srv.DefaultSink == devices.JamesDSPSink {
+		if target, err := graph.New().Target(ctx); err == nil && target != "" {
+			res.Playing = target
+		}
+	}
+	in.DefaultSink = res.Playing
 
 	sinks, err := client.Sinks()
 	if err != nil {

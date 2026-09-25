@@ -145,6 +145,11 @@ func (s *Switcher) AutoSwitch(ctx context.Context, req AutoSwitchRequest) (AutoS
 		return res, err
 	}
 	d := decide(sn)
+	target := "none"
+	if d.target != nil {
+		target = d.target.Name
+	}
+	req.Events.logf(LevelDebug, "auto-switch: default %s, target %s, switch=%v: %s", sn.defaultSink, target, d.switchNow, d.reason)
 	if d.resetBreaker {
 		req.Events.logf(LevelInfo, "JamesDSP outputs are back; closing the breaker")
 		s.mu.Lock()

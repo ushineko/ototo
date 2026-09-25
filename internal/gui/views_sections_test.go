@@ -91,6 +91,12 @@ func TestASettingsSwitchWritesOneKey(t *testing.T) {
 	for _, c := range checks[:3] {
 		require.True(t, c.Checked)
 	}
+	entries := fynetest.All[*widget.Entry](body)
+	require.NotEmpty(t, entries)
+	entries[0].OnSubmitted("48") // the indicator text size is the first entry
+	cfgSize, _, err := config.Load("")
+	require.NoError(t, err)
+	require.Equal(t, 48, cfgSize.OSDTextSize)
 	checks[1].SetChecked(false) // notifications
 	cfg, _, err := config.Load("")
 	require.NoError(t, err)

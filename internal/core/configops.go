@@ -149,9 +149,16 @@ func SetMicLink(_ context.Context, req SetMicLinkRequest) (config.Config, error)
 type SetSwitchesRequest struct {
 	Request
 	OSDEnabled          *bool
+	OSDTextSize         *int
 	SwitchNotifications *bool
 	MoveStreams         *bool
 }
+
+// OSD text size bounds, in points.
+const (
+	OSDTextSizeMin = 8
+	OSDTextSizeMax = 96
+)
 
 // SetSwitches writes the switches that are set.
 func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, error) {
@@ -161,6 +168,12 @@ func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, erro
 	}
 	if req.OSDEnabled != nil {
 		cfg.OSDEnabled = *req.OSDEnabled
+	}
+	if req.OSDTextSize != nil {
+		if *req.OSDTextSize < OSDTextSizeMin || *req.OSDTextSize > OSDTextSizeMax {
+			return cfg, fmt.Errorf("the indicator text size is %d to %d points, not %d", OSDTextSizeMin, OSDTextSizeMax, *req.OSDTextSize)
+		}
+		cfg.OSDTextSize = *req.OSDTextSize
 	}
 	if req.SwitchNotifications != nil {
 		cfg.SwitchNotifications = *req.SwitchNotifications

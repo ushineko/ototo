@@ -21,7 +21,7 @@ func TestTheIndicatorShowsOnceForOneChange(t *testing.T) {
 
 	u.osd.show(volumeSnapshot{percent: 45}, true)
 	require.True(t, u.osd.tr.Shown())
-	require.Equal(t, " 45 %", u.osd.meter.Caption())
+	require.Equal(t, " 45 %", u.osd.value.Text)
 	u.osd.tr.Hide()
 	u.osd.show(volumeSnapshot{percent: 45}, true)
 	require.False(t, u.osd.tr.Shown(), "the same snapshot showed again")
@@ -33,7 +33,21 @@ func TestTheIndicatorShowsOnceForOneChange(t *testing.T) {
 
 	u.osd.show(volumeSnapshot{percent: 50, muted: true}, true)
 	require.True(t, u.osd.tr.Shown())
-	require.Equal(t, "muted", u.osd.meter.Caption())
+	require.Equal(t, "muted", u.osd.value.Text)
+}
+
+// TestTheValueTextTakesTheSettingsSize: the size is the setting, applied at
+// the next show, and the default is the large one.
+func TestTheValueTextTakesTheSettingsSize(t *testing.T) {
+	u := testUI(t)
+	u.osd = newIndicator(u.sh.App)
+	u.osd.draw(volumeSnapshot{percent: 40})
+	require.Equal(t, float32(config.DefaultOSDTextSize), u.osd.value.TextSize)
+	u.statusOK = true
+	u.status = core.StatusResult{Config: config.Default()}
+	u.status.Config.OSDTextSize = 48
+	u.showVolume(core.VolumeResult{Percent: 41})
+	require.Equal(t, float32(48), u.osd.value.TextSize)
 }
 
 // TestTheFirstSnapshotMakesTheCardVisible: a glance card is hidden until
@@ -53,11 +67,11 @@ func TestTheCaptionKeepsItsWidth(t *testing.T) {
 	u := testUI(t)
 	u.osd = newIndicator(u.sh.App)
 	u.osd.draw(volumeSnapshot{percent: 5})
-	five := u.osd.meter.Caption()
+	five := u.osd.value.Text
 	u.osd.draw(volumeSnapshot{percent: 100})
-	require.Len(t, u.osd.meter.Caption(), len(five))
+	require.Len(t, u.osd.value.Text, len(five))
 	u.osd.draw(volumeSnapshot{percent: 150})
-	require.Len(t, u.osd.meter.Caption(), len(five))
+	require.Len(t, u.osd.value.Text, len(five))
 }
 
 // TestTheSettingGatesTheIndicator: osdEnabled reads the status; before the
