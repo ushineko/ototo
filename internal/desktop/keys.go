@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -287,7 +288,15 @@ func release(ctx context.Context, conn *dbus.Conn, h Holder) error {
 	return nil
 }
 
+/*
+register binds one key to one action. A holder released a moment ago is
+still the holder for a moment more: kglobalaccel answers the unregister
+before it has let the key go, and a registration that follows at once is
+refused as held by another shortcut, which it was for a few hundred
+milliseconds. So the key is asked about first, for up to three seconds.
+*/
 func register(ctx context.Context, conn *dbus.Conn, id []string, key int32) error {
+	waitFree(ctx, conn, id[0], key)
 	if err := accel(conn).CallWithContext(ctx, accelIface+".doRegister", 0, id).Err; err != nil {
 		return fmt.Errorf("register %s: %w", id[0], err)
 	}
@@ -356,6 +365,20 @@ func RemoveVolumeKeys(ctx context.Context) (bool, error) {
 		errs = append(errs, fmt.Errorf("remove %s: %w", recPath, err))
 	}
 	return true, errors.Join(errs...)
+}
+
+// waitFree returns when kglobalaccel says the key is available to the
+// component, or after three seconds, whichever is first.
+func waitFree(ctx context.Context, conn *dbus.Conn, component string, key int32) {
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		var free bool
+		err := accel(conn).CallWithContext(ctx, accelIface+".globalShortcutAvailable", 0, keySeq{Keys: []int32{key}}, component).Store(&free)
+		if err != nil || free || time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func keyName(key int32) string {

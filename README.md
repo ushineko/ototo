@@ -125,6 +125,18 @@ A build that is not the release says so: `0.1.0-1a2b3c4-dev` unless HEAD is on
 the version's tag with a clean tree. Packages stamp their own version and are
 unaffected.
 
+Keys of your own, on KDE Plasma:
+
+```
+ototo --desktop bind Meta+A --connect "AirPods Pro"   # a key that switches to a device
+ototo --desktop bind "Meta+Num++" --vol-up             # a key that steps the volume
+ototo --desktop unbind Meta+A
+```
+
+The key is spelled as System Settings spells it. A custom shortcut that held
+the key is released and named; another program's own shortcut is left alone
+and the binding is refused until you release it in System Settings.
+
 `--section` and `--scheme` open the window on a section in a colour scheme
 without saving either, for the screenshot harness. `--config` and `--server`
 point it at another settings file or another sound server; `--server
