@@ -412,7 +412,6 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 		s.settleRoute(ctx, srv, dev.Sink, res.ViaJamesDSP, ev)
 		server := req(srv)
 		go func() {
-			time.Sleep(soundLead)
 			if err := s.play(server, dev.Sink, cfg); err != nil {
 				ev.logf(LevelWarn, "switch sound: %v", err)
 			}
@@ -443,17 +442,29 @@ sink, which needs no link, and only once the route is confirmed: the server
 reports the default this switch set and, through JamesDSP, the graph
 reports the filter linked to the device. The confirmation is polled every
 routePoll for up to routeSettle; a route that never confirms plays anyway,
-so a wrong reading costs a delay and not the sound. soundLead is the moment
-a sink that was just resumed, a Bluetooth one above all, needs before its
-first samples are heard; a stream the server refused is tried once more
-after soundRetry.
+so a wrong reading costs a delay and not the sound.
+
+A sink that was just resumed needs a moment before its first samples are
+heard, and only a playing stream starts it, so the clip leads with silence
+rather than waiting: soundLead for a sink on a wire, bluetoothLead for one
+over Bluetooth, which exists well before the headphones render anything. A
+stream the server refused is tried once more after soundRetry.
 */
 const (
-	routeSettle = 1500 * time.Millisecond
-	routePoll   = 50 * time.Millisecond
-	soundLead   = 100 * time.Millisecond
-	soundRetry  = 300 * time.Millisecond
+	routeSettle   = 1500 * time.Millisecond
+	routePoll     = 50 * time.Millisecond
+	soundLead     = 100 * time.Millisecond
+	bluetoothLead = 750 * time.Millisecond
+	soundRetry    = 300 * time.Millisecond
 )
+
+// leadFor is the silence in front of the switch sound for sink.
+func leadFor(sink string) time.Duration {
+	if strings.HasPrefix(sink, "bluez_output.") {
+		return bluetoothLead
+	}
+	return soundLead
+}
 
 // settleRoute waits for the route to sink to be confirmed, as described
 // above, and says whether it was.
@@ -501,7 +512,8 @@ func (s *Switcher) play(server, sink string, cfg config.Config) error {
 }
 
 // PlaySwitchSound plays what the settings name, the WAV file or the chime,
-// into sink, or the default output when sink is "".
+// into sink, or the default output when sink is "", after the lead of
+// silence the sink needs.
 func PlaySwitchSound(server, sink string, cfg config.Config) error {
 	sound := audio.Chime()
 	if cfg.SwitchSoundFile != "" {
@@ -510,7 +522,7 @@ func PlaySwitchSound(server, sink string, cfg config.Config) error {
 			return err
 		}
 	}
-	return audio.Play(server, sink, sound)
+	return audio.Play(server, sink, sound.WithLead(leadFor(sink)))
 }
 
 // req names the server a connection was made to, for a sound played beside

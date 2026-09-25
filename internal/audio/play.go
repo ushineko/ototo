@@ -26,6 +26,21 @@ type Sound struct {
 	Samples  []float32
 }
 
+// WithLead is the sound with lead of silence in front of it. Silence in the
+// stream, unlike a wait before it, keeps the stream open while the sink
+// starts: a Bluetooth sink exists before the headphones render anything,
+// and a clip that drained before they did was never heard.
+func (s Sound) WithLead(lead time.Duration) Sound {
+	if lead <= 0 || s.Rate == 0 {
+		return s
+	}
+	ch := max(s.Channels, 1)
+	n := int(lead.Seconds()*float64(s.Rate)) * ch
+	out := s
+	out.Samples = append(make([]float32, n, n+len(s.Samples)), s.Samples...)
+	return out
+}
+
 // Chime is the built-in sound: two rising tones, a quarter of a second,
 // with fades so nothing clicks.
 func Chime() Sound {

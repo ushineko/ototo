@@ -326,6 +326,14 @@ func TestTheSwitchSoundWaitsForTheRouteAndPlaysIntoTheDevice(t *testing.T) {
 	}
 }
 
+// TestTheLeadIsLongerOverBluetooth: a Bluetooth sink gets the longer
+// silence in front of the sound; a wired one the short.
+func TestTheLeadIsLongerOverBluetooth(t *testing.T) {
+	require.Equal(t, bluetoothLead, leadFor(airpods))
+	require.Equal(t, soundLead, leadFor(headsetSink))
+	require.Equal(t, soundLead, leadFor(""))
+}
+
 // TestTheSwitchSoundIsTriedOnceMore: a stream the server refused is tried
 // again after a moment, and a second refusal is the failure reported.
 func TestTheSwitchSoundIsTriedOnceMore(t *testing.T) {

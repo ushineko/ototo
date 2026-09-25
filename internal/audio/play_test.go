@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -48,6 +49,20 @@ func wav(rate int, channels int, samples []int16) []byte {
 
 // TestAPCMWAVIsRead: 16-bit PCM in either channel count reads to samples in
 // -1..1 at its own rate; anything else is refused by name.
+// TestALeadIsSilenceInFrontOfTheClip: the lead adds that much silence,
+// per channel, and leaves the clip itself as it was.
+func TestALeadIsSilenceInFrontOfTheClip(t *testing.T) {
+	s := Chime()
+	led := s.WithLead(100 * time.Millisecond)
+	require.Equal(t, s.Duration()+100*time.Millisecond, led.Duration())
+	n := len(led.Samples) - len(s.Samples)
+	for _, v := range led.Samples[:n] {
+		require.Zero(t, v)
+	}
+	require.Equal(t, s.Samples, led.Samples[n:])
+	require.Equal(t, s, s.WithLead(0))
+}
+
 func TestAPCMWAVIsRead(t *testing.T) {
 	s, err := parseWAV(wav(44100, 2, []int16{0, 16384, -32768, 32767}))
 	require.NoError(t, err)
