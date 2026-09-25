@@ -510,7 +510,7 @@ const (
 
 // freshDelay is how long after the switch a fresh device's sound plays; a
 // variable so a test need not wait it out.
-var freshDelay = 5 * time.Second
+var freshDelay = 10 * time.Second
 
 // soundTiming is when the switch sound for sink plays: the wait before the
 // stream opens and the silence in front of the clip. A sink first seen
