@@ -14,6 +14,7 @@ import (
 
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/headset"
+	"github.com/ushineko/ototo/internal/loopback"
 )
 
 /*
@@ -55,6 +56,7 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 				"indicator is all you see."),
 		),
 		u.headsetCard(),
+		u.loopbackCard(),
 		widgets.Card("Settings file",
 			widgets.FactRow("Path", u.status.ConfigPath, fd.StatusInfo),
 		),
@@ -105,6 +107,57 @@ func (u *ui) setHeadsetIdle(minutes int) {
 		fyne.Do(func() { u.status.Config = cfg })
 		return err
 	})
+}
+
+/*
+loopbackCard is R9.3's control: play the line-in through the current
+output. Without a line-in source the card says so and offers nothing. With
+the systemd unit installed the card says the unit is what runs it, and the
+check starts and stops the unit.
+*/
+func (u *ui) loopbackCard() fyne.CanvasObject {
+	lb := u.loopback
+	if u.status.ServerError != "" || lb.Mode == loopback.ModeNone {
+		return widgets.Card("Line-in loopback",
+			widgets.DimWrapped("No line-in source found. With one, this card plays it through the current output."))
+	}
+	how := "Runs pw-loopback from this window while it is on; remembered across restarts."
+	if lb.Mode == loopback.ModeService {
+		how = "Runs through the " + loopback.ServiceName + " user unit, which systemd remembers."
+	}
+	check := widget.NewCheck("Play the line-in through the current output", func(on bool) { u.setLoopback(on) })
+	check.SetChecked(lb.Active)
+	return widgets.Card("Line-in loopback",
+		widgets.FactRow("Source", lb.Source, fd.StatusInfo),
+		widgets.WithTip(check, how),
+	)
+}
+
+func (u *ui) setLoopback(on bool) {
+	if u.loopback.Active == on {
+		return
+	}
+	u.sh.Perform("Setting the loopback...", func(ctx context.Context) error {
+		st, err := u.sw.SetLoopback(ctx, core.SetLoopbackRequest{Request: u.request(), Enabled: on})
+		fyne.Do(func() {
+			if err == nil {
+				u.loopback = st
+				u.status.Config.LoopbackEnabled = on
+			}
+		})
+		return err
+	})
+}
+
+// restoreLoopback is the start-of-process step, off the UI thread.
+func (u *ui) restoreLoopback() {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), TickInterval*2)
+		defer cancel()
+		if _, err := u.sw.RestoreLoopback(ctx, core.LoopbackRequest{Request: u.request()}); err != nil {
+			u.events().Log(core.LevelWarn, "restoring the loopback: "+err.Error())
+		}
+	}()
 }
 
 func (u *ui) setSwitches(req core.SetSwitchesRequest) {

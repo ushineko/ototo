@@ -29,6 +29,7 @@ import (
 
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/instance"
+	"github.com/ushineko/ototo/internal/loopback"
 	"github.com/ushineko/ototo/internal/notify"
 )
 
@@ -67,6 +68,8 @@ type ui struct {
 	status   core.StatusResult
 	statusOK bool
 	loading  bool
+	// loopback is the line-in loopback's state, read with the status.
+	loopback loopback.State
 }
 
 // sectionTitles is the navigation in order.
@@ -208,10 +211,14 @@ func (u *ui) shellOptions(o Options) shell.Options {
 		OnStart: func(s *shell.Shell) {
 			s.Window.SetCloseIntercept(u.onClose)
 			u.setupTray()
+			u.restoreLoopback()
 			u.loadStatus()
 			u.loop.start(u)
 		},
-		OnStop:       func(*shell.Shell) { u.loop.halt() },
+		OnStop: func(*shell.Shell) {
+			u.loop.halt()
+			u.sw.Close()
+		},
 		OnInvalidate: u.onInvalidate,
 
 		// The navigation's shape is the user's: titles with icons, icons
@@ -249,10 +256,17 @@ func (u *ui) loadStatus() {
 	u.loading = true
 	u.sh.Load("Reading the sound server...", func(ctx context.Context) error {
 		res, err := core.Status(ctx, core.StatusRequest{Request: u.request()})
+		var lb loopback.State
+		if err == nil && res.ServerError == "" {
+			// Best effort: the card says "unknown" rather than the whole
+			// status failing over a systemctl that did not answer.
+			lb, _ = u.sw.LoopbackState(ctx, core.LoopbackRequest{Request: u.request()})
+		}
 		fyne.Do(func() {
 			u.loading = false
 			if err == nil {
 				u.status = res
+				u.loopback = lb
 				u.statusOK = true
 			}
 		})
