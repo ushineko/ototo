@@ -1,0 +1,134 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+      - name: Install the window's build dependencies
+        # Fyne over GLFW: OpenGL, X11 and Wayland headers (this Fyne builds GLFW
+        # with both back ends).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev wayland-protocols
+      - name: Test
+        # Headless: the window's tests need no display, and the audio tests
+        # skip where there is no PipeWire or PulseAudio socket.
+        run: make test
+      - name: Lint
+        # The Makefile downloads the pinned golangci-lint into GOPATH/bin and
+        # runs it under the Go toolchain it was built with.
+        run: make lint
+      - name: Build
+        run: make build
+
+  build-arch:
+    name: Arch package
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman -Su --noconfirm
+          # nodejs is for the GitHub Actions runtime inside the container.
+          pacman -S --noconfirm base-devel git go gcc pkgconf mesa wayland wayland-protocols \
+            libgl libx11 libxcursor libxrandr libxinerama libxi libxxf86vm libxkbcommon nodejs
+          # makepkg refuses to run as root.
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+      - uses: actions/checkout@v4
+        with:
+          path: src
+      - name: Build the package from this checkout
+        run: |
+          chown -R builder:builder src
+          cd src
+          su builder -c "git config --global --add safe.directory '$(pwd)'"
+          # -s installs makedepends (already present); --noconfirm for pacman.
+          # The PKGBUILD packages the tree it lives in, so a pull request
+          # builds the pull request.
+          su builder -c "cd packaging/arch && BUILDDIR=/tmp/ototo-pkg makepkg -s --noconfirm"
+          ls -l packaging/arch/*.pkg.tar.zst
+      - name: Smoke-test the package
+        run: |
+          cd src/packaging/arch
+          pacman -U --noconfirm ./*.pkg.tar.zst
+          ototo --version
+          ototo --status || true   # no sound server on a runner; the flag must still answer
+          desktop-file-validate /usr/share/applications/io.ushineko.ototo.desktop || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: src/packaging/arch/*.pkg.tar.zst
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: [test, build-arch]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+      - name: Install the window's build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev wayland-protocols
+      - name: Check the tag matches VERSION
+        run: |
+          test "v$(tr -d '[:space:]' < VERSION)" = "${GITHUB_REF_NAME}" \
+            || { echo "tag ${GITHUB_REF_NAME} does not match VERSION $(cat VERSION)"; exit 1; }
+      - name: Build the release tarballs
+        # The window for the runner's platform, and SHA256SUMS.
+        run: make release
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch-package
+          path: dist
+      # The release notes are this version's changelog entry, not a list of
+      # commit subjects. The entry is written for someone deciding whether to
+      # upgrade; the commit list is written for someone who already has the
+      # diff. GitHub's generated notes are kept as well, so the "Full
+      # Changelog" link and the contributor list still appear, under the prose.
+      - name: Take the release notes from the changelog
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v v="$ver" '
+            index($0, "### " v) == 1 { f = 1; next }
+            f && /^### / { exit }
+            f { print }
+          ' README.md > dist/NOTES.md
+          test -s dist/NOTES.md || { echo "no changelog entry for $ver in README.md"; exit 1; }
+          echo "--- notes ---"; cat dist/NOTES.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            dist/*.pkg.tar.zst
+          body_path: dist/NOTES.md
+          generate_release_notes: true

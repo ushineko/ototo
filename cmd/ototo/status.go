@@ -1,0 +1,71 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/ushineko/ototo/internal/core"
+)
+
+// printStatus is --status as text: one fact per line, then the outputs. Plain
+// text with no colour, so it pastes into a bug report as it is.
+func printStatus(w io.Writer, res core.StatusResult) {
+	fact(w, "ototo", fmt.Sprintf("%s (%s)", res.Version, res.Commit))
+	settings := res.ConfigPath
+	if !res.ConfigExists {
+		settings += " (not written yet; defaults in force)"
+	}
+	fact(w, "settings", settings)
+	fact(w, "auto-switch", onOff(res.Config.AutoSwitch))
+	fact(w, "priority", strings.Join(res.Config.DevicePriority, ", "))
+	_, _ = fmt.Fprintln(w)
+
+	if res.ServerError != "" {
+		fact(w, "sound server", "not reached ("+res.ServerError+")")
+		return
+	}
+	fact(w, "sound server", res.Server.Name+" "+res.Server.Version)
+	fact(w, "default output", res.Server.DefaultSink)
+	fact(w, "default input", res.Server.DefaultSource)
+	fact(w, "inputs", fmt.Sprintf("%d", res.Inputs))
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "outputs:")
+	// The name column is measured rather than guessed: sink names run from
+	// "jamesdsp_sink" to seventy characters of USB descriptor, and a column
+	// that fits neither reads as two columns that collided.
+	width := 0
+	for _, o := range res.Outputs {
+		if len(o.Name) > width {
+			width = len(o.Name)
+		}
+	}
+	for _, o := range res.Outputs {
+		mark := " "
+		if o.Default {
+			mark = "*"
+		}
+		state := "connected"
+		if !o.Connected {
+			state = "disconnected"
+		}
+		vol := fmt.Sprintf("%3d%%", o.Volume)
+		if o.Mute {
+			vol = "muted"
+		}
+		_, _ = fmt.Fprintf(w, "  %s %-*s  %-12s %6s  %s\n", mark, width, o.Name, state, vol, o.Description)
+	}
+}
+
+// fact prints one "label: value" line, with the labels aligned. Write errors
+// on stdout are not worth failing for: the operation already ran.
+func fact(w io.Writer, label, value string) {
+	_, _ = fmt.Fprintf(w, "%-16s %s\n", label+":", value)
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}

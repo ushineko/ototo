@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="ototo">
+  <!-- Three shapes and nothing else, so the icon survives a 16px taskbar. The
+       rounded square is the panel; the dot is a sound (音, oto); the arc is the
+       hop it takes from one output to the next. The arc is 6px wide at a 64px
+       viewBox and there is no detail below that size to turn to mush. -->
+  <rect x="4" y="4" width="56" height="56" rx="12" fill="#2a9d8f"/>
+  <path d="M15 44 Q32 8 49 44" fill="none" stroke="#f4f1de" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="49" cy="44" r="7" fill="#f4f1de"/>
+</svg>

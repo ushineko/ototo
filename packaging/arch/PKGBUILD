@@ -1,0 +1,60 @@
+# Maintainer: ushineko <https://github.com/ushineko>
+#
+# Builds ototo from the checkout this file lives in, not from a download:
+# `makepkg` here, `make pkg-arch` at the repository root, and the GitHub
+# Actions job all package exactly the tree they are run in, so a pull request
+# builds the pull request. The version is VERSION at the repository root, the
+# same file `make build` stamps into the binaries.
+pkgname=ototo
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Audio output switcher for Linux desktops: priority auto-switching, Bluetooth headsets, JamesDSP routing, volume OSD"
+arch=('x86_64' 'aarch64')
+url="https://github.com/ushineko/ototo"
+license=('MIT')
+# The program is a Fyne window over GLFW, built with both the X11 and the
+# Wayland back end, so it needs OpenGL, X11 and Wayland at run time.
+depends=('libgl' 'libx11' 'libxcursor' 'libxrandr' 'libxinerama' 'libxi' 'libxxf86vm' 'libxkbcommon' 'wayland')
+makedepends=('go' 'git' 'gcc' 'pkgconf' 'mesa' 'wayland-protocols')
+optdepends=('pipewire: pw-link, which routes JamesDSP to the chosen output'
+            'bluez: connect and disconnect Bluetooth headsets'
+            'headsetcontrol: battery and idle timeout of a SteelSeries Arctis headset')
+options=('!strip' '!debug') # Go binaries: stripped by the linker flags in the Makefile; no separate debug package
+source=()
+sha256sums=()
+
+# The repository root, two levels up from this file.
+_root="$(cd "${startdir}/../.." && pwd)"
+
+pkgver() {
+	tr -d '[:space:]' < "${_root}/VERSION"
+}
+
+build() {
+	cd "${_root}"
+	# Go's module cache lives in the build user's home; the Makefile's LDFLAGS
+	# carry VERSION and the commit. GOFLAGS=-buildvcs=false: the tree may be
+	# owned by another user in CI, and the version is stamped by hand anyway.
+	export GOFLAGS="-buildvcs=false -mod=readonly"
+	export CGO_ENABLED=1
+	make build
+}
+
+check() {
+	cd "${_root}"
+	# The window's tests need no display. Named trees rather than ./..., so
+	# makepkg's own pkg/ and src/ directories (when BUILDDIR is the PKGBUILD's)
+	# are not walked.
+	GOFLAGS="-buildvcs=false" go test ./cmd/... ./internal/...
+}
+
+package() {
+	cd "${_root}"
+	install -Dm755 ototo "${pkgdir}/usr/bin/ototo"
+	install -Dm644 packaging/io.ushineko.ototo.desktop \
+		"${pkgdir}/usr/share/applications/io.ushineko.ototo.desktop"
+	install -Dm644 packaging/ototo.svg \
+		"${pkgdir}/usr/share/icons/hicolor/scalable/apps/ototo.svg"
+	install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+	install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+}
