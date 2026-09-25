@@ -45,6 +45,8 @@ type Config struct {
 	// OSDTextSize is the indicator's value text size in points; 0 means
 	// DefaultOSDTextSize.
 	OSDTextSize int `json:"osd_text_size"`
+	// OSDFont is the indicator's font family; "" means the window's.
+	OSDFont string `json:"osd_font"`
 	// SwitchNotifications sends a desktop notification on an automatic switch.
 	// Failure notifications are sent regardless.
 	SwitchNotifications bool `json:"switch_notifications"`
@@ -53,6 +55,9 @@ type Config struct {
 	SwitchInOSD bool `json:"switch_in_osd"`
 	// LoopbackEnabled plays the line-in source through the current output.
 	LoopbackEnabled bool `json:"loopback_enabled"`
+	// LoopbackSource is the line-in source to play, for a machine with more
+	// than one; "" means the first found.
+	LoopbackSource string `json:"loopback_source"`
 	// MoveStreams moves playing audio to the new output on a switch.
 	MoveStreams bool `json:"move_streams"`
 }

@@ -9,9 +9,12 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	fd "github.com/ushineko/fynedesygn"
+	"github.com/ushineko/fynedesygn/dialogs"
 	"github.com/ushineko/fynedesygn/forms"
+	fdtheme "github.com/ushineko/fynedesygn/theme"
 	"github.com/ushineko/fynedesygn/widgets"
 
+	"github.com/ushineko/ototo/internal/config"
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/headset"
 	"github.com/ushineko/ototo/internal/loopback"
@@ -36,12 +39,7 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 	move := check("Move playing audio to the new output", cfg.MoveStreams, func(on bool) {
 		u.setSwitches(core.SetSwitchesRequest{MoveStreams: &on})
 	})
-	notes := check("Notify on an automatic switch", cfg.SwitchNotifications, func(on bool) {
-		u.setSwitches(core.SetSwitchesRequest{SwitchNotifications: &on})
-	})
-	inOSD := check("Show a switch in the indicator instead of a notification", cfg.SwitchInOSD, func(on bool) {
-		u.setSwitches(core.SetSwitchesRequest{SwitchInOSD: &on})
-	})
+	tell := u.switchTellRow(cfg)
 	osd := check("Show the volume indicator", cfg.OSDEnabled, func(on bool) {
 		u.setSwitches(core.SetSwitchesRequest{OSDEnabled: &on})
 	})
@@ -51,15 +49,13 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 		widgets.Card("Switching",
 			widgets.WithTip(move, "Streams already playing follow the switch. Off, they keep playing where they "+
 				"were until they restart."),
-			widgets.WithTip(notes, "A desktop notification names the new output and input. A switch that fails is "+
-				"always reported."),
-			widgets.WithTip(inOSD, "The indicator shows the new output for a moment, the way it shows the volume, "+
-				"and no notification is sent. A switch that fails is still a notification."),
+			tell,
 		),
 		widgets.Card("Volume indicator",
 			widgets.WithTip(osd, "The small panel that appears when the volume changes. Off, the desktop's own "+
 				"indicator is all you see."),
 			u.osdSizeRow(),
+			u.osdFontRow(),
 		),
 		u.headsetCard(),
 		u.loopbackCard(),
@@ -68,6 +64,99 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 			widgets.FactRow("Path", u.status.ConfigPath, fd.StatusInfo),
 		),
 	)
+}
+
+// What ototo does on an automatic switch: one choice, kept as the two
+// settings keys the original wrote (switch_notifications and switch_in_osd).
+const (
+	tellNothing      = "Say nothing"
+	tellNotification = "Send a desktop notification"
+	tellIndicator    = "Show it in the indicator"
+)
+
+func tellChoice(cfg config.Config) string {
+	switch {
+	case !cfg.SwitchNotifications:
+		return tellNothing
+	case cfg.SwitchInOSD:
+		return tellIndicator
+	default:
+		return tellNotification
+	}
+}
+
+// switchTellRow is the selector for what a switch shows.
+func (u *ui) switchTellRow(cfg config.Config) fyne.CanvasObject {
+	sel := widget.NewSelect([]string{tellNothing, tellNotification, tellIndicator}, nil)
+	sel.SetSelected(tellChoice(cfg))
+	sel.OnChanged = func(choice string) {
+		if choice == tellChoice(u.status.Config) {
+			return
+		}
+		notify, inOSD := choice != tellNothing, choice == tellIndicator
+		u.setSwitches(core.SetSwitchesRequest{SwitchNotifications: &notify, SwitchInOSD: &inOSD})
+	}
+	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("On an automatic switch"), nil, sel),
+		"A notification names the new output and input. The indicator shows the new output and its volume "+
+			"for a moment. A switch that fails is always a notification, whatever is chosen.")
+}
+
+// windowsFont is the chooser's entry for no font of the indicator's own.
+const windowsFont = "The window's font"
+
+// osdFontRow is the indicator's font: the window's, or a family chosen in
+// the library's font dialog, which shows a sample before anything is
+// applied.
+func (u *ui) osdFontRow() fyne.CanvasObject {
+	current := u.status.Config.OSDFont
+	shown := current
+	if shown == "" {
+		shown = "the window's font"
+	}
+	choose := widget.NewButton("Choose...", func() {
+		// The list leads with the window's own font, and the sample is the
+		// indicator itself: its number, its meter and the playing device,
+		// at the size set, in the family under the cursor.
+		names := append([]string{windowsFont}, fdtheme.FontNames()...)
+		shown := current
+		if shown == "" {
+			shown = windowsFont
+		}
+		size := float32(u.status.Config.OSDTextSize)
+		if size <= 0 {
+			size = config.DefaultOSDTextSize
+		}
+		device := "Speakers"
+		if playing, ok := u.playingDevice(); ok {
+			device = playing.Name
+		}
+		dialogs.ChooseFontWith(u.sh.Window, "Indicator font", names, shown, u.sh.Appearance(), false,
+			func(name string, family *fdtheme.Font) fyne.CanvasObject {
+				if name == windowsFont {
+					family = nil
+				}
+				return indicatorPreview(family, size, device)
+			},
+			func(name string) {
+				if name == windowsFont {
+					name = ""
+				}
+				if name == current {
+					return
+				}
+				u.setSwitches(core.SetSwitchesRequest{OSDFont: &name})
+			})
+	})
+	reset := widget.NewButton("Use the window's font", func() {
+		none := ""
+		u.setSwitches(core.SetSwitchesRequest{OSDFont: &none})
+	})
+	if current == "" {
+		reset.Disable()
+	}
+	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Indicator font"),
+		container.NewHBox(choose, reset), widget.NewLabel(shown)),
+		"The family the indicator's value and device name draw in. The next change of volume shows it.")
 }
 
 // osdSizeRow is the indicator's text size: a selector of the sizes offered,
@@ -158,10 +247,53 @@ func (u *ui) loopbackCard() fyne.CanvasObject {
 		how = "Runs through the " + loopback.ServiceName + " user unit, which systemd remembers."
 	}
 	c := check("Play the line-in through the current output", lb.Active, func(on bool) { u.setLoopback(on) })
-	return widgets.Card("Line-in loopback",
-		widgets.FactRow("Source", lb.Source, fd.StatusInfo),
-		widgets.WithTip(c, how),
-	)
+	rows := []fyne.CanvasObject{widgets.WithTip(c, how)}
+	if len(lb.Candidates) > 1 {
+		rows = append(rows, u.loopbackSourceRow(lb))
+	} else {
+		rows = append(rows, widgets.FactRow("Source", u.sourceName(lb.Source), fd.StatusInfo))
+	}
+	return widgets.Card("Line-in loopback", rows...)
+}
+
+// loopbackSourceRow is the selector for a machine with more than one line
+// input: automatic (the first found) or one by name.
+func (u *ui) loopbackSourceRow(lb loopback.State) fyne.CanvasObject {
+	const automatic = "Automatic (the first found)"
+	options := []string{automatic}
+	for _, c := range lb.Candidates {
+		options = append(options, u.sourceName(c))
+	}
+	sel := widget.NewSelect(options, nil)
+	current := automatic
+	if u.status.Config.LoopbackSource != "" {
+		current = u.sourceName(u.status.Config.LoopbackSource)
+	}
+	sel.SetSelected(current)
+	sel.OnChanged = func(choice string) {
+		want := ""
+		for _, c := range lb.Candidates {
+			if u.sourceName(c) == choice {
+				want = c
+			}
+		}
+		if want == u.status.Config.LoopbackSource {
+			return
+		}
+		u.setSwitches(core.SetSwitchesRequest{LoopbackSource: &want})
+	}
+	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Line-in source"), nil, sel),
+		"Which line input to play. The choice takes effect the next time the loopback is turned on.")
+}
+
+// sourceName is what the list calls an input, else its own name.
+func (u *ui) sourceName(name string) string {
+	for _, s := range u.status.Sources {
+		if s.Name == name {
+			return s.Description
+		}
+	}
+	return name
 }
 
 func (u *ui) setLoopback(on bool) {

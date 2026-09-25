@@ -56,8 +56,8 @@ github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef h1:Ch6Q+AZUxDBCVqd
 github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef/go.mod h1:nXTWP6+gD5+LUJ8krVhhoeHjvHTutPxMYl5SvkcnJNE=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-github.com/ushineko/fynedesygn v0.1.44-0.20260925040446-21bab4f1b664 h1:hP6L77bnfFZHsQ6cPTFAcVCISrLesBrgdMUy/LA1Cl0=
-github.com/ushineko/fynedesygn v0.1.44-0.20260925040446-21bab4f1b664/go.mod h1:WdsB3ChGjUhbmFS5N9ErLnerCEC85pBkYU4GSr8FDGw=
+github.com/ushineko/fynedesygn v0.1.44 h1:gBY59GssGSN2hi29XPtuXCiS0T+HU5E8vu4XMGr7Afg=
+github.com/ushineko/fynedesygn v0.1.44/go.mod h1:WdsB3ChGjUhbmFS5N9ErLnerCEC85pBkYU4GSr8FDGw=
 github.com/yuin/goldmark v1.8.2 h1:kEGpgqJXdgbkhcOgBxkC0X0PmoPG1ZyoZ117rDVp4zE=
 github.com/yuin/goldmark v1.8.2/go.mod h1:ip/1k0VRfGynBgxOz0yCqHrbZXhcjxyuS66Brc7iBKg=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=

@@ -31,6 +31,23 @@ func TestTheLineInIsFoundByItsPort(t *testing.T) {
 	require.Equal(t, "", LineInSource([]audio.Device{inactive}), "an inactive line-in port counted")
 }
 
+// TestPickHonoursTheSettingWhenItIsPresent: with two line inputs the
+// setting chooses; a setting that names a source that is away falls back
+// to the first rather than failing.
+func TestPickHonoursTheSettingWhenItIsPresent(t *testing.T) {
+	sources := []audio.Device{
+		source("alsa_input.a-linein", "analog-input-linein", "Line In"),
+		source("alsa_input.b-linein", "analog-input-linein", "Line In"),
+	}
+	got, cands := Pick(sources, "alsa_input.b-linein")
+	require.Equal(t, "alsa_input.b-linein", got)
+	require.Equal(t, []string{"alsa_input.a-linein", "alsa_input.b-linein"}, cands)
+	got, _ = Pick(sources, "alsa_input.gone")
+	require.Equal(t, "alsa_input.a-linein", got)
+	got, _ = Pick(sources, "")
+	require.Equal(t, "alsa_input.a-linein", got)
+}
+
 func TestTheTargetIsJamesDSPWhenPresent(t *testing.T) {
 	require.Equal(t, "@DEFAULT_SINK@", TargetSink([]audio.Device{{Name: "alsa_output.x"}}))
 	require.Equal(t, "jamesdsp_sink", TargetSink([]audio.Device{{Name: "alsa_output.x"}, {Name: "jamesdsp_sink"}}))

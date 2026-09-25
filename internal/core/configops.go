@@ -150,9 +150,12 @@ type SetSwitchesRequest struct {
 	Request
 	OSDEnabled          *bool
 	OSDTextSize         *int
+	OSDFont             *string
 	SwitchNotifications *bool
 	SwitchInOSD         *bool
 	MoveStreams         *bool
+	// LoopbackSource picks the line-in source; "" means the first found.
+	LoopbackSource *string
 }
 
 // OSD text size bounds, in points.
@@ -179,6 +182,9 @@ func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, erro
 		}
 		cfg.OSDTextSize = *req.OSDTextSize
 	}
+	if req.OSDFont != nil {
+		cfg.OSDFont = *req.OSDFont
+	}
 	if req.SwitchNotifications != nil {
 		cfg.SwitchNotifications = *req.SwitchNotifications
 	}
@@ -187,6 +193,9 @@ func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, erro
 	}
 	if req.MoveStreams != nil {
 		cfg.MoveStreams = *req.MoveStreams
+	}
+	if req.LoopbackSource != nil {
+		cfg.LoopbackSource = *req.LoopbackSource
 	}
 	if err := config.Save(path, cfg); err != nil {
 		return cfg, err

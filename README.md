@@ -18,11 +18,6 @@ address, no settings file.*
 
 **Version**: 0.1.0
 
-> **Status: scaffold.** The window opens, reads the sound server and lists the
-> outputs; `--status` prints the same in a terminal. Switching, priorities,
-> Bluetooth, JamesDSP, the microphone link, the headset, the indicator and the
-> tray arrive with the spec's remaining requirements, in that order.
-
 ## Table of Contents
 
 - [What it does](#what-it-does)
@@ -37,8 +32,6 @@ address, no settings file.*
 - [License](#license)
 
 ## What it does
-
-When complete, the same things the original does:
 
 - **Priority auto-switching.** Order your outputs; the highest connected one
   plays. Unplug it, or power a headset off, and the next one takes over, with
@@ -57,9 +50,9 @@ When complete, the same things the original does:
   volume keys over for it and gives them back; the original left that step
   to the user.
 - **Tray.** Close hides to the tray; the switching continues.
-
-What is here today is the foundation: the window, the settings document, the
-native sound-server client and the `--status` report.
+- **The desktop, on request.** Autostart, the indicator's window rule and the
+  volume keys are switches in Settings. Nothing is written to the desktop
+  until you turn one on, and each one says how it is undone.
 
 ## Requirements
 
@@ -151,12 +144,33 @@ make lint     # golangci-lint, pinned and checksum-verified on first run
 
 ### 0.1.0
 
-- **The scaffold.** The window on fynedesygn's shell with Outputs, Appearance
-  and About; the settings document, read compatibly with the PyQt6 program's
-  `config.json`; a pure-Go client for the PulseAudio native protocol, which
-  PipeWire serves, so nothing shells out to `pactl`; `--status` for a bug
-  report. Installer, Arch package, CI and the screenshot harness follow the
-  sibling repositories.
+The port, complete enough to replace the original on the desktop it was
+written for. The behaviour is the original's, function for function; the
+differences are the ones below.
+
+- **One binary, in the tray.** The window on fynedesygn's shell: Outputs,
+  Microphone, Settings, Appearance and About. `--vol-up`, `--vol-down` and
+  `--connect` are answered by the running window; `--status` prints the
+  machine for a bug report.
+- **No `pactl`, no Python, no Qt.** The sound server is reached over the
+  PulseAudio native protocol, which PipeWire serves; BlueZ, notifications and
+  KWin over D-Bus. `pw-link` and `headsetcontrol` are the two subprocesses,
+  both optional.
+- **Switching as the original did it.** Priority auto-switching every five
+  seconds, JamesDSP rewired so effects survive a switch with the circuit
+  breaker and the floating repair, the microphone following by device, a
+  Bluetooth device connected and waited for before the switch.
+- **The indicator is one panel.** The icon, the level, the meter and the
+  device name, placed on the screen the pointer is on, gone after a moment.
+  A switch can show there instead of a notification. The text size and the
+  font are settings, and the font chooser previews the indicator itself.
+- **The desktop, on request.** Autostart, the indicator's window rule and
+  the volume keys are switches in Settings and `--desktop install`. The keys
+  are taken through kglobalaccel with what held them recorded, and given back
+  when turned off; the original left that step to the user.
+- **The line-in loopback**, through the systemd unit when it exists, else a
+  `pw-loopback` child, with the source selectable when there is more than
+  one.
 
 ## License
 

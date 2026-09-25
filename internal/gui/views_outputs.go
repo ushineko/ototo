@@ -24,6 +24,18 @@ import (
 const outputsTableHeight float32 = 360
 
 /*
+liveOutputs are the widgets of the Outputs section that a volume change
+updates in place: the slider, the mute check and the table. A rebuild for
+a step of the volume made the slider jump under the pointer and the section
+flash; these are set in place instead, the way the design system asks.
+*/
+type liveOutputs struct {
+	slider *forms.SliderEntry
+	mute   *widget.Check
+	table  *fyne.Container
+}
+
+/*
 buildOutputs is the device list (R10.1, first half): every device in priority
 order, the playing one marked, with the actions that act on the selected row.
 
@@ -46,12 +58,7 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 		)
 	}
 
-	t := table.New()
-	t.Header("Device", "State", "Volume", "Id")
-	for _, d := range res.Devices {
-		t.Row(deviceStatus(d), deviceCells(d)...)
-	}
-	tw := t.Widget()
+	tw := u.deviceTable()
 	if u.selected >= len(res.Devices) {
 		u.selected = -1
 	}
@@ -119,8 +126,58 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 		container.NewHBox(switchBtn, connectBtn, disconnectBtn, widgets.Sep(), upBtn, downBtn),
 		widgets.WithTip(auto, "Every five seconds, the highest device in your order that can play becomes the "+
 			"output. Move devices up and down to change what wins."),
-		widgets.FixedHeight(tw, outputsTableHeight),
+		widgets.FixedHeight(u.live.table, outputsTableHeight),
 	)
+}
+
+// deviceTable builds the table from the list and keeps it in a container
+// whose one child updateVolumeInPlace can swap.
+func (u *ui) deviceTable() *widget.Table {
+	t := table.New()
+	t.Header("Device", "State", "Volume", "Id")
+	for _, d := range u.status.Devices {
+		t.Row(deviceStatus(d), deviceCells(d)...)
+	}
+	tw := t.Widget()
+	u.live.table = container.NewStack(tw)
+	return tw
+}
+
+/*
+updateVolumeInPlace is a volume-only change on the section: the slider and
+the mute take the playing device's values with their handlers held off,
+and the table is swapped for one with the new column, in its container.
+Nothing else moves, and the selection stays.
+*/
+func (u *ui) updateVolumeInPlace() {
+	playing, ok := u.playingDevice()
+	if !ok || u.live.slider == nil {
+		return
+	}
+	u.live.slider.Set(float64(playing.Volume))
+	if u.live.mute != nil {
+		changed := u.live.mute.OnChanged
+		u.live.mute.OnChanged = nil
+		u.live.mute.SetChecked(playing.Mute)
+		u.live.mute.OnChanged = changed
+	}
+	if u.live.table != nil {
+		holder := u.live.table
+		t := table.New()
+		t.Header("Device", "State", "Volume", "Id")
+		for _, d := range u.status.Devices {
+			t.Row(deviceStatus(d), deviceCells(d)...)
+		}
+		tw := t.Widget()
+		if old, ok := holder.Objects[0].(*widget.Table); ok {
+			tw.OnSelected, tw.OnUnselected = old.OnSelected, old.OnUnselected
+		}
+		holder.Objects = []fyne.CanvasObject{tw}
+		holder.Refresh()
+		if u.selected >= 0 {
+			tw.Select(widget.TableCellID{Row: u.selected})
+		}
+	}
 }
 
 /*
@@ -140,6 +197,7 @@ func (u *ui) volumeCard() fyne.CanvasObject {
 		Commit: func(v float64) { u.setVolume(int(v), nil) },
 	})
 	mute := check("Mute", playing.Mute, func(on bool) { u.setVolume(0, &on) })
+	u.live.slider, u.live.mute = slider, mute
 	return widgets.Card("Volume: "+playing.Name,
 		container.NewBorder(nil, nil, nil, mute, slider.Widget()))
 }
@@ -156,13 +214,19 @@ func (u *ui) playingDevice() (devices.Device, bool) {
 	return devices.Device{}, false
 }
 
-// setVolume writes a level or a mute to the playing sink.
+// setVolume writes a level or a mute to the playing sink, off the UI thread
+// and not through the shell's loader: the loader rebuilds the section when
+// the work starts and ends, and a rebuild is what made the slider jump.
 func (u *ui) setVolume(percent int, mute *bool) {
-	u.sh.Load("Setting the volume...", func(ctx context.Context) error {
-		_, err := u.sw.SetVolume(ctx, core.SetVolumeRequest{Request: u.request(), Percent: percent, Mute: mute})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), TickInterval)
+		defer cancel()
+		if _, err := u.sw.SetVolume(ctx, core.SetVolumeRequest{Request: u.request(), Percent: percent, Mute: mute}); err != nil {
+			fyne.Do(func() { u.sh.Report("Setting the volume", err) })
+			return
+		}
 		u.refreshQuietly()
-		return err
-	})
+	}()
 }
 
 // moveSelected moves the selected device one place in the order and writes

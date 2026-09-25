@@ -3,7 +3,6 @@ package gui
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -12,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	fd "github.com/ushineko/fynedesygn"
 	"github.com/ushineko/fynedesygn/glance"
+	fdtheme "github.com/ushineko/fynedesygn/theme"
 	"github.com/ushineko/fynedesygn/widgets"
 
 	"github.com/ushineko/ototo/internal/config"
@@ -50,11 +50,21 @@ type indicator struct {
 	// read up close. Its size is the osd_text_size setting.
 	value    *canvas.Text
 	textSize float32
+	// font is the family the value and the device draw in; "" is the
+	// window's own. A family is read from its file and named to the text
+	// directly, which is the one path Fyne resolves before any theme.
+	// family, when set, is used instead of loading font: the preview draws
+	// a family the chooser has already read.
+	font   string
+	family *fdtheme.Font
 	// icon says at a glance what the panel is: a speaker for the volume,
 	// an arrow for a switch. It is what tells this panel from a
 	// notification.
 	icon *canvas.Image
 	tr   *glance.Transient
+	// device names the output under the value, so a switch is the same
+	// panel with a new name: one operation, nothing to collide with.
+	device *canvas.Text
 	// last is the snapshot on screen or last shown; shown says whether it
 	// has been drawn at all.
 	last  volumeSnapshot
@@ -64,6 +74,7 @@ type indicator struct {
 type volumeSnapshot struct {
 	percent int
 	muted   bool
+	device  string
 }
 
 // newIndicator builds the window; it is not shown.
@@ -75,18 +86,10 @@ func newIndicator(a fyne.App) *indicator {
 		Secondary: true,
 	})
 	w.Window().SetIcon(appIcon())
-	m := glance.NewMeter("", 0)
-	value := canvas.NewText("", widgets.StatusColor(fd.StatusGood))
-	value.Alignment = fyne.TextAlignCenter
-	value.TextStyle = fyne.TextStyle{Bold: true}
-	value.TextSize = config.DefaultOSDTextSize
-	icon := canvas.NewImageFromResource(theme.VolumeUpIcon())
-	icon.FillMode = canvas.ImageFillContain
-	card := glance.NewCard("ototo")
-	card.AddObject(container.NewBorder(nil, nil, icon, nil, container.NewVBox(value, m.Object())))
-	w.Panel().Add(card)
-	in := &indicator{win: w, card: card, meter: m, value: value, icon: icon, textSize: config.DefaultOSDTextSize,
-		tr: glance.NewTransient(w, indicatorHold)}
+	in := newIndicatorBody()
+	in.win = w
+	in.tr = glance.NewTransient(w, indicatorHold)
+	w.Panel().Add(in.card)
 	in.size()
 	in.tr.OnShow = func() {
 		// Placed on the pointer's screen by the compositor; without KWin the
@@ -98,14 +101,53 @@ func newIndicator(a fyne.App) *indicator {
 	return in
 }
 
+// newIndicatorBody is the panel's content: the card with the icon, the
+// value, the meter and the device name. It is what the window shows and
+// what the font chooser previews, so the preview is the indicator itself.
+func newIndicatorBody() *indicator {
+	m := glance.NewMeter("", 0)
+	value := canvas.NewText("", widgets.StatusColor(fd.StatusGood))
+	value.Alignment = fyne.TextAlignCenter
+	value.TextStyle = fyne.TextStyle{Bold: true}
+	value.TextSize = config.DefaultOSDTextSize
+	icon := canvas.NewImageFromResource(theme.VolumeUpIcon())
+	icon.FillMode = canvas.ImageFillContain
+	device := canvas.NewText("", theme.Color(theme.ColorNameForeground))
+	device.Alignment = fyne.TextAlignCenter
+	card := glance.NewCard("ototo")
+	card.AddObject(container.NewBorder(nil, nil, icon, nil, container.NewVBox(value, m.Object(), device)))
+	return &indicator{card: card, meter: m, value: value, icon: icon, device: device,
+		textSize: config.DefaultOSDTextSize}
+}
+
+/*
+indicatorPreview draws the indicator as it would look in a family at a
+size, for the font chooser: the same body, a level and the playing device.
+family nil is the window's font.
+*/
+func indicatorPreview(family *fdtheme.Font, size float32, device string) fyne.CanvasObject {
+	in := newIndicatorBody()
+	in.textSize = size
+	in.family = family
+	in.draw(volumeSnapshot{percent: 57, device: device})
+	return in.card.Object()
+}
+
 // size applies the text size to the value and scales the icon with it.
 func (in *indicator) size() {
 	if in.textSize <= 0 {
 		in.textSize = config.DefaultOSDTextSize
 	}
 	in.value.TextSize = in.textSize
+	in.device.TextSize = max(in.textSize*0.45, 11)
 	side := in.textSize * 1.6
 	in.icon.SetMinSize(fyne.NewSize(side, side))
+	family := in.family
+	if family == nil {
+		family = fdtheme.LoadFont(in.font) // nil for "" and for a family that will not read
+	}
+	in.value.FontSource = family.Face(fyne.TextStyle{Bold: true})
+	in.device.FontSource = family.Face(fyne.TextStyle{})
 }
 
 // draw sets the meter from a snapshot. The caption is padded to a fixed
@@ -126,36 +168,17 @@ func (in *indicator) draw(v volumeSnapshot) {
 		icon = theme.VolumeDownIcon()
 	}
 	in.meter.Set(fraction, "", st)
-	in.meter.Object().Show()
-	in.setText(caption, st, icon)
-}
-
-// drawSwitch shows a change of output: the arrow, the device, no meter.
-func (in *indicator) drawSwitch(device string) {
-	in.meter.Object().Hide()
-	in.setText(device, fd.StatusGood, theme.NavigateNextIcon())
-}
-
-func (in *indicator) setText(text string, st fd.Status, icon fyne.Resource) {
 	in.size()
-	in.value.Text = text
+	in.value.Text = caption
 	in.value.Color = widgets.StatusColor(st)
 	in.value.Refresh()
+	in.device.Text = v.device
+	in.device.Refresh()
 	in.icon.Resource = icon
 	in.icon.Refresh()
 	// A card draws once its source has answered; the first snapshot is the
 	// answer. Without this the window is a 6 px strip with nothing in it.
 	in.card.SetAvailable(true)
-}
-
-// showSwitch shows a switch for the hold. The next volume change draws the
-// meter again; the last-shown snapshot is kept so it does not replay.
-func (in *indicator) showSwitch(device string, enabled bool) {
-	if !enabled {
-		return
-	}
-	in.drawSwitch(device)
-	in.tr.Show()
 }
 
 // show draws the snapshot and shows the window when it differs from the
@@ -216,8 +239,18 @@ func (u *ui) showVolume(res core.VolumeResult) {
 		}
 		u.events().Log(core.LevelDebug, fmt.Sprintf("indicator: enabled=%v", u.osdEnabled()))
 		u.showTextSize()
-		u.osd.show(volumeSnapshot{percent: res.Percent, muted: res.Muted}, u.osdEnabled())
+		u.osd.show(volumeSnapshot{percent: res.Percent, muted: res.Muted, device: u.deviceName(res.Sink)}, u.osdEnabled())
 	})
+}
+
+// deviceName is what the list calls a sink, else the sink's own name.
+func (u *ui) deviceName(sink string) string {
+	for _, d := range u.status.Devices {
+		if d.Sink == sink {
+			return d.Name
+		}
+	}
+	return sink
 }
 
 // osdEnabled is the setting, from the last status read; before the first
@@ -241,13 +274,13 @@ type routingNotifier struct {
 
 func (r routingNotifier) Send(n notify.Notification) (uint32, error) {
 	if n.Kind == notify.KindSwitched && r.u.switchInOSD() {
-		device, _, _ := strings.Cut(strings.TrimPrefix(n.Body, "Output: "), "\n")
-		fyne.Do(func() {
-			if r.u.osd != nil {
-				r.u.showTextSize()
-				r.u.osd.showSwitch(device, true)
-			}
-		})
+		// The panel with the new device's name and volume: the same show a
+		// key press gets, so nothing collides with it. The list is read
+		// again first so the name is the new device's.
+		go func() {
+			r.u.refreshQuietly()
+			r.u.volumeChanged(context.Background())
+		}()
 		return 0, nil
 	}
 	if r.bus == nil {
@@ -261,9 +294,13 @@ func (u *ui) switchInOSD() bool {
 	return u.statusOK && u.status.Config.SwitchInOSD
 }
 
-// showTextSize passes the text size setting to the indicator.
+// showTextSize passes the text size and the font settings to the indicator.
 func (u *ui) showTextSize() {
-	if u.statusOK && u.status.Config.OSDTextSize > 0 && u.osd != nil {
+	if !u.statusOK || u.osd == nil {
+		return
+	}
+	if u.status.Config.OSDTextSize > 0 {
 		u.osd.textSize = float32(u.status.Config.OSDTextSize)
 	}
+	u.osd.font = u.status.Config.OSDFont
 }
