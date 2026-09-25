@@ -57,6 +57,7 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 		),
 		u.headsetCard(),
 		u.loopbackCard(),
+		u.desktopCard(),
 		widgets.Card("Settings file",
 			widgets.FactRow("Path", u.status.ConfigPath, fd.StatusInfo),
 		),
@@ -158,6 +159,43 @@ func (u *ui) restoreLoopback() {
 			u.events().Log(core.LevelWarn, "restoring the loopback: "+err.Error())
 		}
 	}()
+}
+
+/*
+desktopCard is D9 and R8.5: what ototo installs into the desktop, each a
+switch that says what it changes and how it is undone. Nothing here runs
+on its own; the person turns it on.
+*/
+func (u *ui) desktopCard() fyne.CanvasObject {
+	dt := u.desktop
+	autostart := widget.NewCheck("Start ototo at login", func(on bool) {
+		u.setDesktop(core.SetDesktopRequest{Autostart: &on})
+	})
+	autostart.SetChecked(dt.Autostart)
+	rule := widget.NewCheck("Install the indicator's window rule (KDE Plasma)", func(on bool) {
+		u.setDesktop(core.SetDesktopRequest{IndicatorRule: &on})
+	})
+	rule.SetChecked(dt.IndicatorRule)
+	rows := []fyne.CanvasObject{
+		widgets.WithTip(autostart, "Writes one desktop entry under your autostart directory, and removes it "+
+			"when turned off."),
+		widgets.WithTip(rule, "Writes one rule into kwinrulesrc so the indicator has no titlebar, stays above "+
+			"other windows, stays out of the taskbar and never takes the focus. Turned off, the rule is removed. "+
+			"Without it the indicator still appears, with a titlebar."),
+	}
+	for _, e := range dt.Errors {
+		rows = append(rows, widgets.Note(e, fd.StatusWarn))
+	}
+	return widgets.Card("Desktop", rows...)
+}
+
+func (u *ui) setDesktop(req core.SetDesktopRequest) {
+	req.Request = u.request()
+	u.sh.Perform("Changing the desktop...", func(ctx context.Context) error {
+		st, err := core.SetDesktop(ctx, req)
+		fyne.Do(func() { u.desktop = st })
+		return err
+	})
 }
 
 func (u *ui) setSwitches(req core.SetSwitchesRequest) {

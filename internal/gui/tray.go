@@ -55,11 +55,21 @@ func (u *ui) onClose() {
 	u.sh.Window.Hide()
 }
 
-// quit stops the tick and the loopback child, and exits.
+// quit stops what the window runs and exits.
 func (u *ui) quit() {
-	u.loop.halt()
-	u.sw.Close()
+	u.shutdown()
 	if u.sh.App != nil {
 		u.sh.App.Quit()
 	}
+}
+
+// shutdown stops the tick, the volume watcher and the loopback child. Safe
+// to call twice.
+func (u *ui) shutdown() {
+	u.loop.halt()
+	if u.stopWatch != nil {
+		u.stopWatch()
+		u.stopWatch = nil
+	}
+	u.sw.Close()
 }

@@ -70,6 +70,12 @@ type ui struct {
 	loading  bool
 	// loopback is the line-in loopback's state, read with the status.
 	loopback loopback.State
+	// desktop is what is installed into the desktop, read with the status.
+	desktop core.DesktopState
+	// osd is the volume indicator; nil until the window exists. stopWatch
+	// ends the subscription that feeds it.
+	osd       *indicator
+	stopWatch context.CancelFunc
 }
 
 // sectionTitles is the navigation in order.
@@ -211,13 +217,16 @@ func (u *ui) shellOptions(o Options) shell.Options {
 		OnStart: func(s *shell.Shell) {
 			s.Window.SetCloseIntercept(u.onClose)
 			u.setupTray()
+			u.osd = newIndicator(s.App)
+			ctx, cancel := context.WithCancel(context.Background())
+			u.stopWatch = cancel
+			go u.watchVolume(ctx)
 			u.restoreLoopback()
 			u.loadStatus()
 			u.loop.start(u)
 		},
 		OnStop: func(*shell.Shell) {
-			u.loop.halt()
-			u.sw.Close()
+			u.shutdown()
 		},
 		OnInvalidate: u.onInvalidate,
 
@@ -262,11 +271,13 @@ func (u *ui) loadStatus() {
 			// status failing over a systemctl that did not answer.
 			lb, _ = u.sw.LoopbackState(ctx, core.LoopbackRequest{Request: u.request()})
 		}
+		dt := core.DesktopStatus(ctx)
 		fyne.Do(func() {
 			u.loading = false
 			if err == nil {
 				u.status = res
 				u.loopback = lb
+				u.desktop = dt
 				u.statusOK = true
 			}
 		})

@@ -38,6 +38,9 @@ func (u *ui) handle(request string) string {
 		if err != nil {
 			return "error " + err.Error()
 		}
+		// The key's own change shows at once; the server's event for the
+		// same write then finds the same snapshot and shows nothing more.
+		u.showVolume(res)
 		u.afterRequest()
 		state := fmt.Sprintf("%d%%", res.Percent)
 		if res.Muted {
