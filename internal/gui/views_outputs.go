@@ -9,8 +9,11 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	fd "github.com/ushineko/fynedesygn"
+	"github.com/ushineko/fynedesygn/forms"
 	"github.com/ushineko/fynedesygn/table"
 	"github.com/ushineko/fynedesygn/widgets"
+
+	"github.com/ushineko/ototo/internal/audio"
 
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/devices"
@@ -57,14 +60,24 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 	switchBtn.Importance = widget.HighImportance
 	connectBtn := widget.NewButtonWithIcon("Connect", theme.ConfirmIcon(), func() { u.connectSelected(true) })
 	disconnectBtn := widget.NewButtonWithIcon("Disconnect", theme.CancelIcon(), func() { u.connectSelected(false) })
+	upBtn := widget.NewButtonWithIcon("Move up", theme.MoveUpIcon(), func() { u.moveSelected(-1) })
+	downBtn := widget.NewButtonWithIcon("Move down", theme.MoveDownIcon(), func() { u.moveSelected(+1) })
 	enable := func() {
 		switchBtn.Disable()
 		connectBtn.Disable()
 		disconnectBtn.Disable()
+		upBtn.Disable()
+		downBtn.Disable()
 		if u.selected < 0 || u.selected >= len(res.Devices) {
 			return
 		}
 		d := res.Devices[u.selected]
+		if u.selected > 0 {
+			upBtn.Enable()
+		}
+		if u.selected < len(res.Devices)-1 {
+			downBtn.Enable()
+		}
 		if d.Online && d.Connected && !d.Default {
 			switchBtn.Enable()
 		}
@@ -93,7 +106,7 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 		u.setAutoSwitch(on)
 	})
 	auto.SetChecked(res.Config.AutoSwitch)
-	u.sh.Gate(switchBtn, connectBtn, disconnectBtn)
+	u.sh.Gate(switchBtn, connectBtn, disconnectBtn, upBtn, downBtn)
 
 	return container.NewVBox(
 		heading,
@@ -103,11 +116,90 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 			widgets.FactRow("Default input", widgets.OrNone(res.Server.DefaultSource, "none"), fd.StatusInfo),
 			widgets.FactRow("Inputs", fmt.Sprintf("%d", res.Inputs), fd.StatusInfo),
 		),
-		container.NewHBox(switchBtn, connectBtn, disconnectBtn),
+		u.volumeCard(),
+		container.NewHBox(switchBtn, connectBtn, disconnectBtn, widgets.Sep(), upBtn, downBtn),
 		widgets.WithTip(auto, "Every five seconds, the highest device in your order that can play becomes the "+
-			"output. Reorder the list to change what wins."),
+			"output. Move devices up and down to change what wins."),
 		widgets.FixedHeight(tw, outputsTableHeight),
 	)
+}
+
+/*
+volumeCard is the playing device's level and mute (R10.1). The slider
+commits once per gesture, so a drag is one write to the server rather than
+four hundred, and the device it acts on is the hardware sink behind
+JamesDSP when JamesDSP is the default (R6.3).
+*/
+func (u *ui) volumeCard() fyne.CanvasObject {
+	playing, ok := u.playingDevice()
+	if !ok {
+		return widgets.Card("Volume", widgets.DimWrapped("Nothing is playing."))
+	}
+	slider := forms.NewSliderEntry(forms.SliderOptions{
+		Min: 0, Max: audio.MaxVolumePercent, Step: 1, Value: float64(playing.Volume),
+		Format: func(v float64) string { return fmt.Sprintf("%.0f", v) },
+		Commit: func(v float64) { u.setVolume(int(v), nil) },
+	})
+	mute := widget.NewCheck("Mute", func(on bool) { u.setVolume(0, &on) })
+	mute.SetChecked(playing.Mute)
+	return widgets.Card("Volume: "+playing.Name,
+		container.NewBorder(nil, nil, nil, mute, slider.Widget()))
+}
+
+// playingDevice is the row whose volume the card shows: the default sink's,
+// or JamesDSP's target when the default is JamesDSP, which the list marks
+// as Default in either case.
+func (u *ui) playingDevice() (devices.Device, bool) {
+	for _, d := range u.status.Devices {
+		if d.Default {
+			return d, true
+		}
+	}
+	return devices.Device{}, false
+}
+
+// setVolume writes a level or a mute to the playing sink.
+func (u *ui) setVolume(percent int, mute *bool) {
+	u.sh.Load("Setting the volume...", func(ctx context.Context) error {
+		_, err := u.sw.SetVolume(ctx, core.SetVolumeRequest{Request: u.request(), Percent: percent, Mute: mute})
+		fyne.Do(func() { u.statusOK = false })
+		return err
+	})
+}
+
+// moveSelected moves the selected device one place in the order and writes
+// it. The selection follows the row.
+func (u *ui) moveSelected(delta int) {
+	d, ok := u.selectedDevice()
+	if !ok {
+		return
+	}
+	order := currentOrder(u.status.Devices)
+	moved := core.Moved(order, d.ID, delta)
+	u.sh.Perform("Saving the order...", func(ctx context.Context) error {
+		cfg, err := core.SetPriority(ctx, core.SetPriorityRequest{Request: u.request(), Order: moved})
+		fyne.Do(func() {
+			if err != nil {
+				return
+			}
+			u.status.Config = cfg
+			u.selected += delta
+			u.statusOK = false
+		})
+		return err
+	})
+}
+
+// currentOrder is every listed device's id in list order, which is the
+// priority order followed by the devices not yet ranked. Writing it whole
+// is what the original did on a drag, and it means a device the user has
+// never moved gets a place the first time any device moves.
+func currentOrder(list []devices.Device) []string {
+	out := make([]string, 0, len(list))
+	for _, d := range list {
+		out = append(out, d.ID)
+	}
+	return out
 }
 
 // selectedDevice is the row the actions act on.

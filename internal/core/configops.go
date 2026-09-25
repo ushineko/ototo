@@ -69,3 +69,106 @@ func (s *Switcher) Disconnect(ctx context.Context, req DisconnectRequest) (devic
 	req.Events.logf(LevelInfo, "disconnected %s", dev.Name)
 	return dev, nil
 }
+
+// SetPriorityRequest writes the auto-switch order.
+type SetPriorityRequest struct {
+	Request
+	// Order is the full list of ids, highest first.
+	Order []string
+}
+
+// SetPriority writes device_priority as given.
+func SetPriority(_ context.Context, req SetPriorityRequest) (config.Config, error) {
+	cfg, path, err := config.Load(req.ConfigPath)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.DevicePriority = append([]string{}, req.Order...)
+	if err := config.Save(path, cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// Moved returns order with id moved by delta places (-1 up, +1 down), or
+// order unchanged when the move is impossible. An id not yet in the order
+// is appended first, so a device the user ranks for the first time joins
+// the list at the end and then moves.
+func Moved(order []string, id string, delta int) []string {
+	out := append([]string{}, order...)
+	at := -1
+	for i, o := range out {
+		if o == id {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		out = append(out, id)
+		at = len(out) - 1
+	}
+	to := at + delta
+	if to < 0 || to >= len(out) {
+		return out
+	}
+	out[at], out[to] = out[to], out[at]
+	return out
+}
+
+// SetMicLinkRequest pins an input to an output, or lets it be matched, or
+// leaves it alone.
+type SetMicLinkRequest struct {
+	Request
+	// Device is the output's priority id.
+	Device string
+	// Link is config.MicAuto, config.MicDefault or a source name.
+	Link string
+}
+
+// SetMicLink writes mic_links[Device]. Auto is the default, so it is
+// stored by removing the key, as the original did.
+func SetMicLink(_ context.Context, req SetMicLinkRequest) (config.Config, error) {
+	cfg, path, err := config.Load(req.ConfigPath)
+	if err != nil {
+		return cfg, err
+	}
+	if req.Link == "" || req.Link == config.MicAuto {
+		delete(cfg.MicLinks, req.Device)
+	} else {
+		cfg.MicLinks[req.Device] = req.Link
+	}
+	if err := config.Save(path, cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// SetSwitchesRequest changes the on/off settings. A nil field is left as it
+// is, so one control writes one key.
+type SetSwitchesRequest struct {
+	Request
+	OSDEnabled          *bool
+	SwitchNotifications *bool
+	MoveStreams         *bool
+}
+
+// SetSwitches writes the switches that are set.
+func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, error) {
+	cfg, path, err := config.Load(req.ConfigPath)
+	if err != nil {
+		return cfg, err
+	}
+	if req.OSDEnabled != nil {
+		cfg.OSDEnabled = *req.OSDEnabled
+	}
+	if req.SwitchNotifications != nil {
+		cfg.SwitchNotifications = *req.SwitchNotifications
+	}
+	if req.MoveStreams != nil {
+		cfg.MoveStreams = *req.MoveStreams
+	}
+	if err := config.Save(path, cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}

@@ -74,7 +74,7 @@ type ui struct {
 // parsing flags. A title with no builder draws nothing, so the two are kept in
 // step by TestSectionNamesNeedsNoApp rather than by memory.
 var sectionTitles = []string{
-	"Outputs", "Appearance", "About",
+	"Outputs", "Microphone", "Settings", "Appearance", "About",
 }
 
 // sectionEntry is what a section is made of: a deferred icon, its builder,
@@ -96,6 +96,8 @@ func sectionBuilders() map[string]sectionEntry {
 		// builder, or the end of the read would rebuild the section that
 		// started it, which would read again.
 		"Outputs":    {theme.VolumeUpIcon, (*ui).buildOutputs, (*ui).loadStatus},
+		"Microphone": {theme.MediaRecordIcon, (*ui).buildMicrophone, nil},
+		"Settings":   {theme.SettingsIcon, (*ui).buildSettings, nil},
 		"Appearance": {theme.ColorPaletteIcon, (*ui).buildAppearance, nil},
 		"About":      {theme.HelpIcon, (*ui).buildAbout, nil},
 	}

@@ -35,6 +35,15 @@ type StatusResult struct {
 	// Without a server it holds only what the settings remember.
 	Devices []devices.Device
 	Inputs  int
+	// Sources are the inputs by name and description, for the microphone
+	// editor (R10.2).
+	Sources []Source
+}
+
+// Source is one input.
+type Source struct {
+	Name        string
+	Description string
 }
 
 // Status reports the settings, the sound server and the outputs.
@@ -96,6 +105,9 @@ func Status(ctx context.Context, req StatusRequest) (StatusResult, error) {
 		return res, nil
 	}
 	res.Inputs = len(sources)
+	for _, src := range sources {
+		res.Sources = append(res.Sources, Source{Name: src.Name, Description: devices.DisplayName(src, nil)})
+	}
 	req.Events.logf(LevelDebug, "%d outputs, %d inputs from %s %s", len(sinks), len(sources), srv.Name, srv.Version)
 	return res, nil
 }

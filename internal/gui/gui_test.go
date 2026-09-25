@@ -50,7 +50,7 @@ func testUI(t *testing.T) *ui {
 // before there is a Fyne app to construct a theme icon against.
 func TestSectionNamesNeedsNoApp(t *testing.T) {
 	names := SectionNames()
-	require.Equal(t, []string{"Outputs", "Appearance", "About"}, names)
+	require.Equal(t, []string{"Outputs", "Microphone", "Settings", "Appearance", "About"}, names)
 	for _, n := range names {
 		require.Containsf(t, sectionBuilders(), n, "%q is advertised but has no section", n)
 	}
