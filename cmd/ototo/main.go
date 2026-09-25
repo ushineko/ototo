@@ -23,9 +23,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/buildinfo"
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/gui"
+	"github.com/ushineko/ototo/internal/notify"
 )
 
 func main() { os.Exit(run()) }
@@ -41,8 +43,22 @@ func run() int {
 		"sound server (default $PULSE_SERVER, else the session's socket)")
 	status := flag.Bool("status", false,
 		"print the sound server, the default output and the settings, then exit")
+	connect := flag.String("connect", "",
+		"switch to this device (a priority id, a sink name, or part of a name) and exit")
+	volUp := flag.Bool("vol-up", false, "turn the playing output up one step and exit")
+	volDown := flag.Bool("vol-down", false, "turn the playing output down one step and exit")
 	version := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	base := core.Request{
+		ConfigPath: *configPath,
+		Server:     *server,
+		Events: core.Events{Log: func(level core.Level, msg string) {
+			if level >= core.LevelWarn {
+				fmt.Fprintf(os.Stderr, "ototo: %s: %s\n", level, msg)
+			}
+		}},
+	}
 
 	if *version {
 		fmt.Printf("ototo %s (%s)\n", buildinfo.Version, buildinfo.Commit)
@@ -50,21 +66,17 @@ func run() int {
 	}
 
 	if *status {
-		res, err := core.Status(context.Background(), core.StatusRequest{Request: core.Request{
-			ConfigPath: *configPath,
-			Server:     *server,
-			Events: core.Events{Log: func(level core.Level, msg string) {
-				if level >= core.LevelWarn {
-					fmt.Fprintf(os.Stderr, "ototo: %s: %s\n", level, msg)
-				}
-			}},
-		}})
+		res, err := core.Status(context.Background(), core.StatusRequest{Request: base})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ototo:", err)
 			return 1
 		}
 		printStatus(os.Stdout, res)
 		return 0
+	}
+
+	if *connect != "" || *volUp || *volDown {
+		return oneShot(base, *connect, *volDown)
 	}
 
 	gui.Run(gui.Options{
@@ -75,5 +87,53 @@ func run() int {
 		Section:    *section,
 		Scheme:     *scheme,
 	})
+	return 0
+}
+
+/*
+oneShot is the hotkey path: a fresh Switcher, as the original's headless
+mode, with the desktop's notifier so a failure reaches the person who
+pressed the key. Exit 0 when the change was made, 1 when it was not.
+*/
+func oneShot(base core.Request, connect string, volDown bool) int {
+	sw := core.NewSwitcher()
+	if bus, err := notify.Session(); err == nil {
+		sw.Notifier = bus
+	} else {
+		fmt.Fprintln(os.Stderr, "ototo: notifications unavailable:", err)
+	}
+	ctx := context.Background()
+
+	if connect != "" {
+		res, err := sw.Switch(ctx, core.SwitchRequest{Request: base, Target: connect, Manual: true})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ototo:", err)
+			return 1
+		}
+		how := "directly"
+		if res.ViaJamesDSP {
+			how = "through JamesDSP"
+		}
+		fmt.Printf("switched to %s %s\n", res.Device.Name, how)
+		if res.MicName != "" {
+			fmt.Printf("input follows: %s\n", res.MicName)
+		}
+		return 0
+	}
+
+	delta := audio.VolumeStep
+	if volDown {
+		delta = -audio.VolumeStep
+	}
+	res, err := sw.Volume(ctx, core.VolumeRequest{Request: base, Delta: delta})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ototo:", err)
+		return 1
+	}
+	state := fmt.Sprintf("%d%%", res.Percent)
+	if res.Muted {
+		state = "muted"
+	}
+	fmt.Printf("%s: %s\n", res.Sink, state)
 	return 0
 }
