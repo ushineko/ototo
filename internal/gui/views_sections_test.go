@@ -44,6 +44,16 @@ func TestMoveWritesTheWholeOrderAndFollowsTheRow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"b", "a"}, cfg.DevicePriority)
 	require.Equal(t, 0, u.selected)
+	require.True(t, u.statusOK, "the list was dropped after a move; it should stay and be read again behind")
+	require.Equal(t, "b", u.status.Devices[0].ID, "the row did not move at once")
+}
+
+// TestReorderedKeepsWhatTheOrderDoesNotName: a device the order does not
+// list (one that appeared since) stays, after the named ones.
+func TestReorderedKeepsWhatTheOrderDoesNotName(t *testing.T) {
+	list := []devices.Device{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	got := reordered(list, []string{"c", "a", "zz"})
+	require.Equal(t, []string{"c", "a", "b"}, currentOrder(got))
 }
 
 // TestTheMicrophoneChoiceIsWrittenAsMade: the row's Select is the setting;

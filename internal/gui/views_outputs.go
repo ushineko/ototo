@@ -160,7 +160,7 @@ func (u *ui) playingDevice() (devices.Device, bool) {
 func (u *ui) setVolume(percent int, mute *bool) {
 	u.sh.Load("Setting the volume...", func(ctx context.Context) error {
 		_, err := u.sw.SetVolume(ctx, core.SetVolumeRequest{Request: u.request(), Percent: percent, Mute: mute})
-		fyne.Do(func() { u.statusOK = false })
+		u.refreshQuietly()
 		return err
 	})
 }
@@ -180,12 +180,38 @@ func (u *ui) moveSelected(delta int) {
 			if err != nil {
 				return
 			}
+			// The list is reordered in place from what was written, so the
+			// row moves at once; the read behind it confirms.
 			u.status.Config = cfg
+			u.status.Devices = reordered(u.status.Devices, moved)
 			u.selected += delta
-			u.statusOK = false
 		})
+		u.refreshQuietly()
 		return err
 	})
+}
+
+// reordered puts list in the order of ids, with anything not named kept
+// after them in its old order.
+func reordered(list []devices.Device, ids []string) []devices.Device {
+	byID := make(map[string]devices.Device, len(list))
+	for _, d := range list {
+		byID[d.ID] = d
+	}
+	out := make([]devices.Device, 0, len(list))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if d, ok := byID[id]; ok && !seen[id] {
+			out = append(out, d)
+			seen[id] = true
+		}
+	}
+	for _, d := range list {
+		if !seen[d.ID] {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // currentOrder is every listed device's id in list order, which is the
@@ -217,12 +243,14 @@ func (u *ui) switchToSelected() {
 	}
 	u.sh.Perform("Switching to "+d.Name+"...", func(ctx context.Context) error {
 		res, err := u.sw.Switch(ctx, core.SwitchRequest{Request: u.request(), Target: d.ID, Manual: true})
+		// The list stays on screen and is read again behind it. Dropping
+		// the loaded state here left "Reading the sound server…" in its
+		// place until the next tick, which read as a pause of five seconds.
+		u.refreshQuietly()
 		fyne.Do(func() {
-			u.statusOK = false
-			if err != nil {
-				return
+			if err == nil {
+				u.sh.OK(switchedText(res))
 			}
-			u.sh.OK(switchedText(res))
 		})
 		return err
 	})
@@ -256,8 +284,8 @@ func (u *ui) connectSelected(connect bool) {
 	}
 	u.sh.Perform("Disconnecting "+d.Name+"...", func(ctx context.Context) error {
 		_, err := u.sw.Disconnect(ctx, core.DisconnectRequest{Request: u.request(), Target: d.ID})
+		u.refreshQuietly()
 		fyne.Do(func() {
-			u.statusOK = false
 			if err == nil {
 				u.sh.OK("Disconnected " + d.Name + ".")
 			}
