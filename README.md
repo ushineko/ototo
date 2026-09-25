@@ -233,10 +233,11 @@ window does not carry pictures of the window.
 - The switch sound waits for the route: it plays once the server reports
   the new default and, through JamesDSP, once the graph reports the filter
   linked to the new device, and it plays into the device's own sink, so it
-  is no longer lost in a sink that is still being rewired. It leads with
-  silence, 2 s for a device that just appeared, since headphones that just
-  connected take a moment to render anything, play a chime of their own
-  first, and only a playing stream starts them.
+  is no longer lost in a sink that is still being rewired. For a device
+  that just appeared, such as headphones that just connected, the sound is
+  scheduled 5 s after the switch instead: their Bluetooth transport is not
+  active until a second after the sink exists, a stream played meanwhile
+  goes by unheard, and their own connect chime mutes what follows.
 - A switch holds the indicator for 3 s, twice a key press's 1.5 s.
 
 ### 0.1.2

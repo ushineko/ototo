@@ -95,7 +95,8 @@ type Switcher struct {
 }
 
 // noteSinks records the sinks listed now; the first listing is the machine
-// as found, and nothing in it is fresh.
+// as found, and nothing in it is fresh. A sink that is gone is forgotten,
+// so headphones that reconnect are fresh again.
 func (s *Switcher) noteSinks(sinks []audio.Device) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -103,7 +104,9 @@ func (s *Switcher) noteSinks(sinks []audio.Device) {
 	if first {
 		s.seen = map[string]time.Time{}
 	}
+	listed := map[string]bool{}
 	for _, d := range sinks {
+		listed[d.Name] = true
 		if _, ok := s.seen[d.Name]; ok {
 			continue
 		}
@@ -111,6 +114,11 @@ func (s *Switcher) noteSinks(sinks []audio.Device) {
 			s.seen[d.Name] = time.Time{}
 		} else {
 			s.seen[d.Name] = time.Now()
+		}
+	}
+	for name := range s.seen {
+		if !listed[name] {
+			delete(s.seen, name)
 		}
 	}
 }
@@ -437,10 +445,16 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 	if changed && cfg.SwitchSound {
 		s.settleRoute(ctx, srv, dev.Sink, res.ViaJamesDSP, ev)
 		server := req(srv)
+		delay, lead := s.soundTiming(dev.Sink)
 		go func() {
-			if err := s.play(server, dev.Sink, cfg); err != nil {
+			time.Sleep(delay)
+			started := time.Now()
+			ev.logf(LevelDebug, "switch sound: into %s, %s after the switch, after %s of silence", dev.Sink, delay, lead)
+			if err := s.play(server, dev.Sink, lead, cfg); err != nil {
 				ev.logf(LevelWarn, "switch sound: %v", err)
+				return
 			}
+			ev.logf(LevelDebug, "switch sound: drained after %s", time.Since(started).Round(time.Millisecond))
 		}()
 	}
 	if changed && cfg.SwitchNotifications {
@@ -472,24 +486,36 @@ so a wrong reading costs a delay and not the sound.
 
 A sink that was just resumed needs a moment before its first samples are
 heard, and only a playing stream starts it, so the clip leads with silence
-rather than waiting: soundLead for a sink that has been there, freshLead
-for one first seen within freshFor, such as headphones that just connected,
-whose sink exists well before they render anything and which play a chime
-of their own over the first seconds. A stream the server refused is tried
-once more after soundRetry.
+rather than waiting: soundLead for a sink that has been there.
+
+A device that just appeared, first seen within freshFor, is another case:
+headphones that just connected have a sink a second before their Bluetooth
+transport is active, and PipeWire consumes a stream at rate while it is
+pending, so the whole clip went by unheard; and then they play a chime of
+their own, muting the stream under it. Measured on a WH-1000XM6: the
+transport went active 1.3 s after the stream started, 0.9 s after a 350 ms
+clip had drained. So the switch returns, and its sound is scheduled for
+freshDelay later from the goroutine that plays it, with freshLead of
+silence in front in case the transport has gone idle again by then. A
+stream the server refused is tried once more after soundRetry.
 */
 const (
 	routeSettle = 1500 * time.Millisecond
 	routePoll   = 50 * time.Millisecond
 	soundLead   = 100 * time.Millisecond
-	freshLead   = 2 * time.Second
+	freshLead   = 1500 * time.Millisecond
 	freshFor    = 15 * time.Second
 	soundRetry  = 300 * time.Millisecond
 )
 
-// leadFor is the silence in front of the switch sound for sink: freshLead
-// for a sink first seen within freshFor, or never listed before now.
-func (s *Switcher) leadFor(sink string) time.Duration {
+// freshDelay is how long after the switch a fresh device's sound plays; a
+// variable so a test need not wait it out.
+var freshDelay = 5 * time.Second
+
+// soundTiming is when the switch sound for sink plays: the wait before the
+// stream opens and the silence in front of the clip. A sink first seen
+// within freshFor, or never listed before now, is fresh.
+func (s *Switcher) soundTiming(sink string) (delay, lead time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.seen[sink]
@@ -501,9 +527,9 @@ func (s *Switcher) leadFor(sink string) time.Duration {
 		s.seen[sink] = t
 	}
 	if !t.IsZero() && time.Since(t) < freshFor {
-		return freshLead
+		return freshDelay, freshLead
 	}
-	return soundLead
+	return 0, soundLead
 }
 
 // settleRoute waits for the route to sink to be confirmed, as described
@@ -539,12 +565,11 @@ func (s *Switcher) settleRoute(ctx context.Context, srv server, sink string, via
 
 // play plays the switch sound through Player, or over the sound server,
 // and once more after soundRetry when the first try failed.
-func (s *Switcher) play(server, sink string, cfg config.Config) error {
+func (s *Switcher) play(server, sink string, lead time.Duration, cfg config.Config) error {
 	play := PlaySwitchSound
 	if s.Player != nil {
 		play = s.Player
 	}
-	lead := s.leadFor(sink)
 	if err := play(server, sink, lead, cfg); err == nil {
 		return nil
 	}
