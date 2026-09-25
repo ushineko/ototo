@@ -122,7 +122,7 @@ source, and the port's behaviour must match it.
   document; a damaged file is an error naming the path.
 - R2.3 Writes are atomic (temp file and rename).
 
-### R3. Sound server client (scaffold: read side done)
+### R3. Sound server client (done)
 
 - R3.1 Connect over the native protocol; `--server` and `$PULSE_SERVER`
   override the session socket.
@@ -339,7 +339,7 @@ Scaffold (this PR):
 
 Port (later PRs, one per requirement group):
 
-- [ ] R3.3, R3.4: write side and subscription, tested against the live server where present.
+- [x] R3.3, R3.4: write side and subscription, tested against the live server where present (PR: feat/audio-write-and-watch; the reconnect path is exercised only by the no-server test, since restarting the developer's sound server from a test is not acceptable).
 - [ ] R4: device model, with table-driven tests over synthetic sink property sets (no real MACs).
 - [ ] R5, R6, R7: switching, auto-switching, JamesDSP and microphone, with the algorithm tested over a fake server snapshot and a fake graph.
 - [ ] R8: the indicator, after the R8.4 experiment is recorded here.
