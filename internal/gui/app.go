@@ -227,10 +227,12 @@ func (u *ui) statusSegments() []fyne.CanvasObject {
 // defaultOutputText names the default output by its description, which is
 // what a person calls it, falling back to the sink name.
 func defaultOutputText(res core.StatusResult) string {
-	for _, o := range res.Outputs {
-		if o.Default {
-			return widgets.OrNone(o.Description, o.Name)
+	for _, d := range res.Devices {
+		if d.Default {
+			return d.Name
 		}
 	}
+	// The default sink can be one the list hides, which today is only the
+	// JamesDSP sink; the routing target replaces this line with R6.
 	return widgets.OrNone(res.Server.DefaultSink, "none")
 }

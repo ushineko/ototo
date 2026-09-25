@@ -30,30 +30,27 @@ func printStatus(w io.Writer, res core.StatusResult) {
 	fact(w, "default input", res.Server.DefaultSource)
 	fact(w, "inputs", fmt.Sprintf("%d", res.Inputs))
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "outputs:")
-	// The name column is measured rather than guessed: sink names run from
-	// "jamesdsp_sink" to seventy characters of USB descriptor, and a column
-	// that fits neither reads as two columns that collided.
+	_, _ = fmt.Fprintln(w, "devices:")
+	// The columns are measured rather than guessed: ids run from
+	// "bt:AA:BB:CC:DD:EE:FF" to seventy characters of USB descriptor, and a
+	// column that fits neither reads as two columns that collided.
 	width := 0
-	for _, o := range res.Outputs {
-		if len(o.Name) > width {
-			width = len(o.Name)
-		}
+	for _, d := range res.Devices {
+		width = max(width, len(d.Name))
 	}
-	for _, o := range res.Outputs {
+	for _, d := range res.Devices {
 		mark := " "
-		if o.Default {
+		if d.Default {
 			mark = "*"
 		}
-		state := "connected"
-		if !o.Connected {
-			state = "disconnected"
-		}
-		vol := fmt.Sprintf("%3d%%", o.Volume)
-		if o.Mute {
+		vol := fmt.Sprintf("%3d%%", d.Volume)
+		switch {
+		case !d.Online:
+			vol = "away"
+		case d.Mute:
 			vol = "muted"
 		}
-		_, _ = fmt.Fprintf(w, "  %s %-*s  %-12s %6s  %s\n", mark, width, o.Name, state, vol, o.Description)
+		_, _ = fmt.Fprintf(w, "  %s %-*s  %6s  %s\n", mark, width, d.Name, vol, d.ID)
 	}
 }
 

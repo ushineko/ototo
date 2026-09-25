@@ -136,7 +136,7 @@ source, and the port's behaviour must match it.
   is disconnected; a device with no ports is connected *(as the original's
   `_append_port_info`)*.
 
-### R4. Device model *(as the original)*
+### R4. Device model *(as the original)* (done)
 
 - R4.1 Priority id: `bt:<MAC upper, colons>` when the sink name carries a
   MAC (`([0-9A-F]{2}[:_]){5}[0-9A-F]{2}`, case-insensitive), else the sink
@@ -340,7 +340,7 @@ Scaffold (this PR):
 Port (later PRs, one per requirement group):
 
 - [x] R3.3, R3.4: write side and subscription, tested against the live server where present (PR: feat/audio-write-and-watch; the reconnect path is exercised only by the no-server test, since restarting the developer's sound server from a test is not acceptable).
-- [ ] R4: device model, with table-driven tests over synthetic sink property sets (no real MACs).
+- [x] R4: device model, with table-driven tests over synthetic sink property sets (no real MACs). (PR: feat/device-model. The Bluetooth cache and the headset battery are inputs the model takes; they are supplied by R9, so until then a Bluetooth device is named by its address and the Arctis reads as off.)
 - [ ] R5, R6, R7: switching, auto-switching, JamesDSP and microphone, with the algorithm tested over a fake server snapshot and a fake graph.
 - [ ] R8: the indicator, after the R8.4 experiment is recorded here.
 - [ ] R9: Bluetooth, headset, loopback, tray.
