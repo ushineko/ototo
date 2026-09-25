@@ -99,7 +99,16 @@ func TestTheHeadsetCardSaysWhatItCannotDo(t *testing.T) {
 	require.Contains(t, texts, "not detected")
 	u.status.Headset = devices.Headset{Detected: true, Battery: "87%"}
 	require.Contains(t, strings.Join(fynetest.Texts(u.headsetCard()), "\n"), "87%")
-	require.Equal(t, "0", fynetest.FindEntry(u.headsetCard()).Text)
+	entry := fynetest.FindEntry(u.headsetCard())
+	require.Equal(t, "0", entry.Text)
+	entry.OnSubmitted("15")
+	cfg, _, err := config.Load("")
+	require.NoError(t, err)
+	require.Equal(t, 15, cfg.ArctisIdleMinutes, "Enter did not write the timeout")
+	entry.OnSubmitted("200")
+	cfg, _, err = config.Load("")
+	require.NoError(t, err)
+	require.Equal(t, 15, cfg.ArctisIdleMinutes, "an out-of-range value was written")
 }
 
 // TestTheVolumeCardShowsThePlayingDevice: the slider carries the level of

@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -76,14 +77,22 @@ func (u *ui) headsetCard() fyne.CanvasObject {
 	if u.status.Headset.Detected {
 		battery = widgets.FactRow("Battery", u.status.Headset.Battery, fd.StatusGood)
 	}
-	idle := forms.NumericEntry(0, headset.IdleMax, func(m int) { u.setHeadsetIdle(m) })
+	// The entry commits on Enter and not on every keystroke: each commit
+	// runs headsetcontrol, and typing "15" is two values, not one.
+	idle := widget.NewEntry()
+	idle.Validator = forms.IntRange(0, headset.IdleMax)
 	idle.SetText(strconv.Itoa(u.status.Config.ArctisIdleMinutes))
+	idle.OnSubmitted = func(text string) {
+		if m, err := strconv.Atoi(strings.TrimSpace(text)); err == nil && m >= 0 && m <= headset.IdleMax {
+			u.setHeadsetIdle(m)
+		}
+	}
 	return widgets.Card("Headset (SteelSeries Arctis)",
 		battery,
 		widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Turn off after idle minutes"), nil,
 			widgets.FixedWidth(idle, forms.NumericWidth)),
 			"0 is never. The headset turns itself off after this long without sound, to save its battery. "+
-				"Applied when the value changes, with the headset on."),
+				"Press Enter to apply, with the headset on."),
 	)
 }
 
