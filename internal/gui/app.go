@@ -16,6 +16,8 @@ package gui
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
@@ -25,6 +27,7 @@ import (
 	"github.com/ushineko/fynedesygn/widgets"
 
 	"github.com/ushineko/ototo/internal/core"
+	"github.com/ushineko/ototo/internal/notify"
 )
 
 // appID names the preference store and, on Wayland, the window's app_id,
@@ -43,6 +46,15 @@ type ui struct {
 	// same document and the same server.
 	configPath string
 	server     string
+	// sw is the switching state (the breaker, the last switch), held for the
+	// life of the process; loop is the 5 s tick that drives it.
+	sw   *core.Switcher
+	loop ticker
+	// hiddenToTray says the window is hidden rather than closed.
+	hiddenToTray bool
+	// selected is the Outputs row the user picked, -1 for none. It is what
+	// enables the row actions, and it survives a rebuild.
+	selected int
 
 	// Loaded from the core on a goroutine, read and written on the UI thread.
 	//
@@ -132,8 +144,20 @@ type Options struct {
 
 // Run opens the window and blocks until it is closed.
 func Run(o Options) {
-	u := &ui{version: o.Version, commit: o.Commit, configPath: o.ConfigPath, server: o.Server}
+	u := newUI(o)
+	if bus, err := notify.Session(); err == nil {
+		u.sw.Notifier = bus
+	} else {
+		fmt.Fprintln(os.Stderr, "ototo: notifications unavailable:", err)
+	}
 	shell.Run(u.shellOptions(o))
+}
+
+func newUI(o Options) *ui {
+	return &ui{
+		version: o.Version, commit: o.Commit, configPath: o.ConfigPath, server: o.Server,
+		sw: core.NewSwitcher(), selected: -1,
+	}
 }
 
 // shellOptions describes this program to the shell.
@@ -154,7 +178,15 @@ func (u *ui) shellOptions(o Options) shell.Options {
 		OnCreate:  func(s *shell.Shell) { u.sh = s },
 		// The status bar names the server and the default output from every
 		// section, so the read starts here rather than being left to Outputs.
-		OnStart:      func(*shell.Shell) { u.loadStatus() },
+		// The tray, the close intercept and the tick belong to the window,
+		// so they start here too.
+		OnStart: func(s *shell.Shell) {
+			s.Window.SetCloseIntercept(u.onClose)
+			u.setupTray()
+			u.loadStatus()
+			u.loop.start(u)
+		},
+		OnStop:       func(*shell.Shell) { u.loop.halt() },
 		OnInvalidate: u.onInvalidate,
 
 		// The navigation's shape is the user's: titles with icons, icons
@@ -169,7 +201,17 @@ func (u *ui) shellOptions(o Options) shell.Options {
 
 // request is the core request every operation from this window carries.
 func (u *ui) request() core.Request {
-	return core.Request{ConfigPath: u.configPath, Server: u.server}
+	return core.Request{ConfigPath: u.configPath, Server: u.server, Events: u.events()}
+}
+
+// events routes the core's log lines to stderr for now; a log pane in the
+// window is R10's.
+func (u *ui) events() core.Events {
+	return core.Events{Log: func(level core.Level, msg string) {
+		if level >= core.LevelInfo {
+			fmt.Fprintf(os.Stderr, "ototo: %s: %s\n", level, msg)
+		}
+	}}
 }
 
 // loadStatus reads what the machine has, through the shell's loader so the
