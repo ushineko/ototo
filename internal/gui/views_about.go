@@ -26,16 +26,15 @@ func (u *ui) about() shell.About {
 		Blurb: "Keeps your audio on the output you want. Switches to the highest-priority " +
 			"connected device, follows it with the matching microphone, connects Bluetooth " +
 			"headsets, and reroutes JamesDSP so effects never drop out. Native Go over the " +
-			"PulseAudio protocol: no pactl, no Python.",
+			"PulseAudio protocol.",
 		URL:     projectURL,
 		URLText: "Project documentation",
 		Notes: []shell.Note{
-			{Title: "The name", Detail: "音跳び (oto-tobi, sound-hop), shortened. The little brother " +
+			{Title: "Origin", Detail: "音跳び (oto-tobi, sound-hop), shortened; AKA the little bro " +
 				"(弟, otōto) that follows your audio around."},
-			{Title: "Touch little", Detail: "ototo changes the default output and input, the volume, and " +
+			{Title: "Simplicity", Detail: "ototo changes the default output and input, the volume, and " +
 				"which output JamesDSP plays through. It writes one settings file of its own. " +
-				"Anything it installs into the desktop (autostart, a KWin rule, a key binding) " +
-				"is an explicit step, and each one is reversible."},
+				"Anything it installs into the desktop is reversible."},
 		},
 		Facts: []shell.Fact{
 			{Label: "Commit", Value: u.commit},

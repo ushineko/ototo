@@ -87,22 +87,33 @@ func TestASettingsSwitchWritesOneKey(t *testing.T) {
 	loaded(u)
 	body := u.buildSettings()
 	checks := fynetest.All[*widget.Check](body)
-	require.Len(t, checks, 7, "four settings switches and three desktop steps")
-	require.True(t, checks[0].Checked && checks[1].Checked && checks[3].Checked)
-	require.False(t, checks[2].Checked, "switches in the indicator is off by default")
-	sizes := fynetest.All[*widget.Select](body)
-	require.NotEmpty(t, sizes)
-	require.Equal(t, "32", sizes[0].Selected, "the indicator text size is the first selector")
-	sizes[0].SetSelected("48")
+	require.Len(t, checks, 5, "two settings switches and three desktop steps")
+	require.True(t, checks[0].Checked && checks[1].Checked)
+	selects := fynetest.All[*widget.Select](body)
+	require.Len(t, selects, 2, "the switch choice and the indicator text size")
+	require.NotNil(t, fynetest.FindButton(body, "Choose..."), "the indicator font chooser is missing")
+	require.True(t, fynetest.FindButton(body, "Use the window's font").Disabled(), "nothing to reset yet")
+	require.Equal(t, tellNotification, selects[0].Selected, "a notification is the default, as the original")
+	require.Equal(t, "32", selects[1].Selected)
+	selects[1].SetSelected("48")
 	cfgSize, _, err := config.Load("")
 	require.NoError(t, err)
 	require.Equal(t, 48, cfgSize.OSDTextSize)
-	checks[1].SetChecked(false) // notifications
+
+	// One choice, two keys: the indicator means notifications on and the
+	// indicator flag on; nothing means notifications off.
+	selects[0].SetSelected(tellIndicator)
 	cfg, _, err := config.Load("")
+	require.NoError(t, err)
+	require.True(t, cfg.SwitchNotifications && cfg.SwitchInOSD)
+	u.status.Config = cfg
+	selects[0].SetSelected(tellNothing)
+	cfg, _, err = config.Load("")
 	require.NoError(t, err)
 	require.False(t, cfg.SwitchNotifications)
 	require.True(t, cfg.MoveStreams)
 	require.True(t, cfg.OSDEnabled)
+	require.Equal(t, tellNothing, tellChoice(cfg))
 }
 
 // TestTheHeadsetCardSaysWhatItCannotDo: no tool means no control, and the
@@ -128,6 +139,31 @@ func TestTheHeadsetCardSaysWhatItCannotDo(t *testing.T) {
 	require.Equal(t, 15, cfg.ArctisIdleMinutes, "an out-of-range value was written")
 }
 
+// TestAVolumeChangeDoesNotRebuildTheSection: the slider that the pointer is
+// on must be the same slider after the level changed, set in place.
+func TestAVolumeChangeDoesNotRebuildTheSection(t *testing.T) {
+	u := testUI(t)
+	loaded(u)
+	body := u.buildOutputs()
+	slider := fynetest.FindSlider(body)
+	require.Equal(t, 40.0, slider.Value)
+	before := u.live.slider
+
+	next := u.status
+	next.Devices = append([]devices.Device{}, u.status.Devices...)
+	next.Devices[0].Volume = 55
+	require.True(t, sameExceptVolume(next, u.status))
+	u.status = next
+	u.updateVolumeInPlace()
+	require.Same(t, before, u.live.slider, "the slider was rebuilt")
+	require.Equal(t, 55.0, slider.Value)
+
+	renamed := next
+	renamed.Devices = append([]devices.Device{}, next.Devices...)
+	renamed.Devices[0].Name = "Other"
+	require.False(t, sameExceptVolume(renamed, u.status), "a renamed device counted as a volume change")
+}
+
 // TestTheLoopbackCardNamesItsTier: no line-in is said plainly; with one,
 // the card says whether systemd or this window runs it.
 func TestTheLoopbackCardNamesItsTier(t *testing.T) {
@@ -142,6 +178,23 @@ func TestTheLoopbackCardNamesItsTier(t *testing.T) {
 	card = u.loopbackCard()
 	require.False(t, fynetest.FindCheck(card).Checked)
 	require.Contains(t, strings.Join(fynetest.Tips(card), "\n"), "pw-loopback")
+}
+
+// TestTwoLineInputsOfferASelector: one line input is a fact; two are a
+// choice, written to the settings by the input's own name.
+func TestTwoLineInputsOfferASelector(t *testing.T) {
+	u := testUI(t)
+	loaded(u)
+	u.status.Sources = append(u.status.Sources, core.Source{Name: "in-a", Description: "Card A line in"}, core.Source{Name: "in-b", Description: "Card B line in"})
+	u.loopback = loopback.State{Source: "in-a", Candidates: []string{"in-a"}, Mode: loopback.ModeDirect}
+	require.Empty(t, fynetest.All[*widget.Select](u.loopbackCard()))
+	u.loopback.Candidates = []string{"in-a", "in-b"}
+	sel := fynetest.All[*widget.Select](u.loopbackCard())
+	require.Len(t, sel, 1)
+	sel[0].SetSelected("Card B line in")
+	cfg, _, err := config.Load("")
+	require.NoError(t, err)
+	require.Equal(t, "in-b", cfg.LoopbackSource)
 }
 
 // TestTheVolumeCardShowsThePlayingDevice: the slider carries the level of

@@ -31,6 +31,7 @@ import (
 	"github.com/ushineko/fynedesygn/widgets"
 
 	"github.com/ushineko/ototo/internal/core"
+	"github.com/ushineko/ototo/internal/devices"
 	"github.com/ushineko/ototo/internal/instance"
 	"github.com/ushineko/ototo/internal/loopback"
 	"github.com/ushineko/ototo/internal/notify"
@@ -79,6 +80,10 @@ type ui struct {
 	// ends the subscription that feeds it.
 	osd       *indicator
 	stopWatch context.CancelFunc
+	// live is what the Outputs section updates in place when only the
+	// volume changed: rebuilding the section for a volume step made the
+	// slider jump under the pointer.
+	live liveOutputs
 }
 
 // sectionTitles is the navigation in order.
@@ -323,14 +328,31 @@ func (u *ui) refreshQuietly() {
 			return // a loader is reading; its result is newer than this one
 		}
 		changed := !u.statusOK || !reflect.DeepEqual(res, u.status) ||
-			lb != u.loopback || !reflect.DeepEqual(dt, u.desktop)
+			!reflect.DeepEqual(lb, u.loopback) || !reflect.DeepEqual(dt, u.desktop)
+		volumeOnly := changed && u.statusOK && reflect.DeepEqual(lb, u.loopback) && reflect.DeepEqual(dt, u.desktop) &&
+			sameExceptVolume(res, u.status)
 		u.status, u.loopback, u.desktop = res, lb, dt
 		u.statusOK = true
-		if changed {
+		switch {
+		case volumeOnly:
+			u.updateVolumeInPlace()
+		case changed:
 			u.sh.Refresh()
 			u.sh.RedrawStatus()
 		}
 	})
+}
+
+// sameExceptVolume says two readings differ only in a level or a mute.
+func sameExceptVolume(a, b core.StatusResult) bool {
+	flat := func(r core.StatusResult) core.StatusResult {
+		r.Devices = append([]devices.Device{}, r.Devices...)
+		for i := range r.Devices {
+			r.Devices[i].Volume, r.Devices[i].Mute = 0, false
+		}
+		return r
+	}
+	return reflect.DeepEqual(flat(a), flat(b))
 }
 
 // onInvalidate discards what was loaded from the core, which makes the

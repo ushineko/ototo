@@ -41,10 +41,13 @@ const (
 
 // State is what the Settings card shows.
 type State struct {
-	// Source is the line-in source; "" when the machine has none.
+	// Source is the line-in source in use; "" when the machine has none.
 	Source string
-	Mode   Mode
-	Active bool
+	// Candidates are every source with a line input, for a machine with
+	// more than one; the setting picks among them.
+	Candidates []string
+	Mode       Mode
+	Active     bool
 }
 
 // Runner runs a command and returns its stdout.
@@ -77,6 +80,16 @@ the type, so this looks at the port's name and description, which every
 ALSA card spells with "line".
 */
 func LineInSource(sources []audio.Device) string {
+	if c := LineInSources(sources); len(c) > 0 {
+		return c[0]
+	}
+	return ""
+}
+
+// LineInSources is every source whose active port is a line input, in the
+// server's order.
+func LineInSources(sources []audio.Device) []string {
+	var out []string
 	for _, s := range sources {
 		if strings.Contains(s.Name, ".monitor") {
 			continue
@@ -87,11 +100,27 @@ func LineInSource(sources []audio.Device) string {
 			}
 			name := strings.ToLower(p.Name + " " + p.Description)
 			if strings.Contains(name, "line") {
-				return s.Name
+				out = append(out, s.Name)
 			}
 		}
 	}
-	return ""
+	return out
+}
+
+// Pick is the source to use: the preferred one when it is a candidate, else
+// the first. A preferred source that is away falls back rather than
+// failing, and the card says which is in use.
+func Pick(sources []audio.Device, preferred string) (source string, candidates []string) {
+	candidates = LineInSources(sources)
+	for _, c := range candidates {
+		if c == preferred {
+			return c, candidates
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0], candidates
+	}
+	return "", candidates
 }
 
 // TargetSink is where pw-loopback plays: the JamesDSP sink when there is

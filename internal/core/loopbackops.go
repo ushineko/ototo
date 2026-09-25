@@ -23,7 +23,14 @@ func (s *Switcher) LoopbackState(ctx context.Context, req LoopbackRequest) (loop
 	if err != nil {
 		return loopback.State{}, err
 	}
-	return s.loopback().State(ctx, loopback.LineInSource(sources)), nil
+	cfg, _, err := config.Load(req.ConfigPath)
+	if err != nil {
+		return loopback.State{}, err
+	}
+	source, candidates := loopback.Pick(sources, cfg.LoopbackSource)
+	st := s.loopback().State(ctx, source)
+	st.Candidates = candidates
+	return st, nil
 }
 
 // SetLoopbackRequest turns the loopback on or off.
@@ -48,11 +55,13 @@ func (s *Switcher) SetLoopback(ctx context.Context, req SetLoopbackRequest) (loo
 	if err != nil {
 		return loopback.State{}, err
 	}
-	st, err := s.loopback().Set(ctx, req.Enabled, loopback.LineInSource(sources), loopback.TargetSink(sinks))
-	if err != nil {
-		return st, err
-	}
 	cfg, path, err := config.Load(req.ConfigPath)
+	if err != nil {
+		return loopback.State{}, err
+	}
+	source, candidates := loopback.Pick(sources, cfg.LoopbackSource)
+	st, err := s.loopback().Set(ctx, req.Enabled, source, loopback.TargetSink(sinks))
+	st.Candidates = candidates
 	if err != nil {
 		return st, err
 	}
@@ -86,7 +95,7 @@ func (s *Switcher) RestoreLoopback(ctx context.Context, req LoopbackRequest) (lo
 	if err != nil {
 		return loopback.State{}, err
 	}
-	source := loopback.LineInSource(sources)
+	source, _ := loopback.Pick(sources, cfg.LoopbackSource)
 	if source == "" || s.loopback().ServiceInstalled(ctx) {
 		return s.loopback().State(ctx, source), nil
 	}
