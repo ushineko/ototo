@@ -41,7 +41,7 @@ type StatusResult struct {
 //
 // A machine with no sound server is a machine to report on, not to fail on:
 // the result carries the reason and the settings still.
-func Status(_ context.Context, req StatusRequest) (StatusResult, error) {
+func Status(ctx context.Context, req StatusRequest) (StatusResult, error) {
 	res := StatusResult{Version: buildinfo.Version, Commit: buildinfo.Commit}
 
 	cfg, path, err := config.Load(req.ConfigPath)
@@ -56,10 +56,12 @@ func Status(_ context.Context, req StatusRequest) (StatusResult, error) {
 		req.Events.logf(LevelWarn, "settings file %s: %v", path, statErr)
 	}
 
-	// The Bluetooth cache and the headset arrive with R9; until then the
-	// list names a Bluetooth device by its address and treats the headset
-	// as off, which is what the original showed with the adapter down.
-	in := devices.Inputs{Priority: cfg.DevicePriority}
+	probes := req.probes()
+	in := devices.Inputs{
+		Priority:  cfg.DevicePriority,
+		Bluetooth: probes.bluetooth(ctx),
+		Headset:   probes.headset(ctx),
+	}
 
 	client, err := audio.Connect(req.Server)
 	if err != nil {

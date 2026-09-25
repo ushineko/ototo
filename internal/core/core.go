@@ -72,4 +72,14 @@ type Request struct {
 	Server string
 	// Events receives log lines. May be the zero value.
 	Events Events
+	// Probes read the Bluetooth adapter and the headset; nil reads the
+	// machine (DefaultProbes). A test supplies its own.
+	Probes *Probes
+}
+
+func (r Request) probes() Probes {
+	if r.Probes == nil {
+		return DefaultProbes()
+	}
+	return *r.Probes
 }

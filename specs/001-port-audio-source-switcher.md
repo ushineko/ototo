@@ -264,9 +264,11 @@ what this spec proposes as library work under "Gaps found":
 - R9.1 BlueZ over the system bus: enumerate `Device1` objects, filter audio
   by UUID or icon, `Connect`/`Disconnect` off the UI thread, connect on
   selecting an offline device, error text from the D-Bus error.
-- R9.2 Arctis: `headsetcontrol -b -c` battery, negative or failure is "not
-  detected"; `headsetcontrol -i N` idle timeout applied when the setting
-  changes, 0 disables, else 1..90.
+- R9.2 Arctis: `headsetcontrol -b -o env` battery (the `-c` short form is
+  deprecated upstream and is the fallback for an older tool); a status other
+  than available or charging, or a negative level, is "not detected";
+  `headsetcontrol -i N` idle timeout applied when the setting changes, 0
+  disables, else 1..90.
 - R9.3 Line-in loopback: `systemctl --user` `audio-loopback.service` when
   installed, else a `pw-loopback -C <source> -P <target>` child, target the
   first sink containing `jamesdsp` else `@DEFAULT_SINK@`; restored at start
@@ -343,7 +345,7 @@ Port (later PRs, one per requirement group):
 - [x] R4: device model, with table-driven tests over synthetic sink property sets (no real MACs). (PR: feat/device-model. The Bluetooth cache and the headset battery are inputs the model takes; they are supplied by R9, so until then a Bluetooth device is named by its address and the Arctis reads as off.)
 - [x] R5, R6, R7: switching, auto-switching, JamesDSP and microphone, with the algorithm tested over a fake server snapshot and a fake graph. (PR: feat/switching. `--connect`, `--vol-up` and `--vol-down` act on the server directly until D10 forwards them to the running instance. One deviation from the original, on purpose: the fallback that picks any connected sink never picks the JamesDSP sink itself, which the original's sink order could.)
 - [ ] R8: the indicator, after the R8.4 experiment is recorded here.
-- [ ] R9: Bluetooth, headset, loopback, tray.
+- [ ] R9: Bluetooth, headset, loopback, tray. R9.1 and R9.2 done (PR: feat/bluetooth-headset): the adapter over the system bus and headsetcontrol are the device model's inputs, and an away Bluetooth device is connected and waited for before the switch. The device path is found by address rather than assumed under hci0. R9.3 and R9.4 remain.
 - [ ] R10: the sections, with headless tests naming the defect each prevents.
 - [ ] D9, D10, R11: desktop steps, the volume keys bound and restored by the program, and single instance.
 - [ ] The original is retired from ag-scripts' README with a pointer here.
