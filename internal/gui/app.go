@@ -19,6 +19,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
+	"reflect"
+	"syscall"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
@@ -183,6 +186,15 @@ func Run(o Options) int {
 	} else {
 		fmt.Fprintln(os.Stderr, "ototo: notifications unavailable:", err)
 	}
+	// A TERM or an INT ends the program the way Quit does, with the tick,
+	// the watcher and the loopback child stopped. Without this the tray's
+	// signal handling swallows TERM and the process has to be killed.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-signals
+		fyne.Do(u.quit)
+	}()
 	shell.Run(u.shellOptions(o))
 	return 0
 }
@@ -245,11 +257,11 @@ func (u *ui) request() core.Request {
 	return core.Request{ConfigPath: u.configPath, Server: u.server, Events: u.events()}
 }
 
-// events routes the core's log lines to stderr for now; a log pane in the
-// window is R10's.
+// events routes the core's log lines to stderr; debug lines too when
+// OTOTO_DEBUG is set, which is how a report of "nothing happened" is read.
 func (u *ui) events() core.Events {
 	return core.Events{Log: func(level core.Level, msg string) {
-		if level >= core.LevelInfo {
+		if level >= core.LevelInfo || os.Getenv("OTOTO_DEBUG") != "" {
 			fmt.Fprintf(os.Stderr, "ototo: %s: %s\n", level, msg)
 		}
 	}}
@@ -282,6 +294,40 @@ func (u *ui) loadStatus() {
 			}
 		})
 		return err
+	})
+}
+
+/*
+refreshQuietly reads the state again off the UI thread and redraws the
+section only when something changed. It is what the tick and the hotkey
+path use: a read every five seconds through the shell's loader would
+rebuild the section twice a tick, once when the work starts and once when
+it ends, and the person would see the list flash while reading it.
+*/
+func (u *ui) refreshQuietly() {
+	ctx, cancel := context.WithTimeout(context.Background(), TickInterval*2)
+	defer cancel()
+	res, err := core.Status(ctx, core.StatusRequest{Request: u.request()})
+	if err != nil {
+		return
+	}
+	var lb loopback.State
+	if res.ServerError == "" {
+		lb, _ = u.sw.LoopbackState(ctx, core.LoopbackRequest{Request: u.request()})
+	}
+	dt := core.DesktopStatus(ctx)
+	fyne.Do(func() {
+		if u.loading {
+			return // a loader is reading; its result is newer than this one
+		}
+		changed := !u.statusOK || !reflect.DeepEqual(res, u.status) ||
+			lb != u.loopback || !reflect.DeepEqual(dt, u.desktop)
+		u.status, u.loopback, u.desktop = res, lb, dt
+		u.statusOK = true
+		if changed {
+			u.sh.Refresh()
+			u.sh.RedrawStatus()
+		}
 	})
 }
 

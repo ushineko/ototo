@@ -61,11 +61,8 @@ func (u *ui) handle(request string) string {
 
 // afterRequest reads the state again when the window can be seen.
 func (u *ui) afterRequest() {
-	fyne.Do(func() {
-		if u.hiddenToTray || !u.sh.OnScreen() {
-			return
-		}
-		u.statusOK = false
-		u.loadStatus()
-	})
+	if u.hiddenToTray || !u.sh.OnScreen() {
+		return
+	}
+	u.refreshQuietly()
 }

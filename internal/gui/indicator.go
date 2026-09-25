@@ -35,6 +35,7 @@ volume shows nothing, and the program's own write shows once.
 */
 type indicator struct {
 	win   *glance.Window
+	card  *glance.Card
 	meter *glance.Meter
 	tr    *glance.Transient
 	// last is the snapshot on screen or last shown; shown says whether it
@@ -61,7 +62,7 @@ func newIndicator(a fyne.App) *indicator {
 	card := glance.NewCard("Volume")
 	card.AddObject(m.Object())
 	w.Panel().Add(card)
-	in := &indicator{win: w, meter: m, tr: glance.NewTransient(w, indicatorHold)}
+	in := &indicator{win: w, card: card, meter: m, tr: glance.NewTransient(w, indicatorHold)}
 	in.tr.OnShow = func() {
 		// Placed on the pointer's screen by the compositor; without KWin the
 		// window stays where the compositor put it, which is not an error.
@@ -86,6 +87,9 @@ func (in *indicator) draw(v volumeSnapshot) {
 		st = fd.StatusWarn
 	}
 	in.meter.Set(fraction, caption, st)
+	// A card draws once its source has answered; the first snapshot is the
+	// answer. Without this the window is a 6 px strip with nothing in it.
+	in.card.SetAvailable(true)
 }
 
 // show draws the snapshot and shows the window when it differs from the
@@ -111,6 +115,7 @@ func (u *ui) watchVolume(ctx context.Context) {
 	go audio.Watch(ctx, u.server, events, func(s string) { u.events().Log(core.LevelWarn, s) })
 	var timer *time.Timer
 	for ev := range events {
+		u.events().Log(core.LevelDebug, fmt.Sprintf("server event: %s %s %d", ev.Facility, ev.Change, ev.Index))
 		if ev.Facility != audio.FacilitySink && !ev.Reconnected {
 			continue
 		}
@@ -130,8 +135,10 @@ func (u *ui) volumeChanged(ctx context.Context) {
 	defer cancel()
 	res, err := u.sw.Volume(ctx, core.VolumeRequest{Request: u.request()})
 	if err != nil {
+		u.events().Log(core.LevelWarn, "reading the volume for the indicator: "+err.Error())
 		return
 	}
+	u.events().Log(core.LevelDebug, fmt.Sprintf("volume read: %s %d%% muted=%v", res.Sink, res.Percent, res.Muted))
 	u.showVolume(res)
 }
 
@@ -141,6 +148,7 @@ func (u *ui) showVolume(res core.VolumeResult) {
 		if u.osd == nil {
 			return
 		}
+		u.events().Log(core.LevelDebug, fmt.Sprintf("indicator: enabled=%v", u.osdEnabled()))
 		u.osd.show(volumeSnapshot{percent: res.Percent, muted: res.Muted}, u.osdEnabled())
 	})
 }
