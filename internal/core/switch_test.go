@@ -33,6 +33,7 @@ type fakeServer struct {
 	defaultSink string
 	defaultSrc  string
 	volumes     map[string]int
+	muted       bool
 	calls       []string
 	failSet     error
 }
@@ -59,11 +60,21 @@ func (f *fakeServer) MoveSinkInputs(sink string) (int, int, error) {
 	f.calls = append(f.calls, "move "+sink)
 	return 2, 1, nil
 }
-func (f *fakeServer) Volume(sink string) (int, bool, error) { return f.volumes[sink], false, nil }
+func (f *fakeServer) Volume(sink string) (int, bool, error) { return f.volumes[sink], f.muted, nil }
 func (f *fakeServer) AdjustVolume(sink string, delta int) (int, error) {
 	f.volumes[sink] += delta
 	f.calls = append(f.calls, "adjust "+sink)
 	return f.volumes[sink], nil
+}
+func (f *fakeServer) SetVolume(sink string, percent int) (int, error) {
+	f.volumes[sink] = percent
+	f.calls = append(f.calls, "volume "+sink)
+	return percent, nil
+}
+func (f *fakeServer) SetMute(sink string, mute bool) error {
+	f.muted = mute
+	f.calls = append(f.calls, "mute "+sink)
+	return nil
 }
 func (f *fakeServer) Close() error { return nil }
 

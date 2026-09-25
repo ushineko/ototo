@@ -26,6 +26,8 @@ type server interface {
 	MoveSinkInputs(sink string) (moved, refused int, err error)
 	Volume(sink string) (percent int, muted bool, err error)
 	AdjustVolume(sink string, delta int) (int, error)
+	SetVolume(sink string, percent int) (int, error)
+	SetMute(sink string, mute bool) error
 	Close() error
 }
 
