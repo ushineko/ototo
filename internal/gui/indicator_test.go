@@ -7,6 +7,7 @@ import (
 
 	"github.com/ushineko/ototo/internal/config"
 	"github.com/ushineko/ototo/internal/core"
+	"github.com/ushineko/ototo/internal/notify"
 )
 
 // TestTheIndicatorShowsOnceForOneChange: the key's own write and the
@@ -34,6 +35,37 @@ func TestTheIndicatorShowsOnceForOneChange(t *testing.T) {
 	u.osd.show(volumeSnapshot{percent: 50, muted: true}, true)
 	require.True(t, u.osd.tr.Shown())
 	require.Equal(t, "muted", u.osd.value.Text)
+}
+
+// TestASwitchGoesToTheIndicatorOnlyWhenAsked: with the setting off the
+// notification reaches the desktop; on, the indicator shows the device and
+// nothing is sent. A failure always reaches the desktop.
+func TestASwitchGoesToTheIndicatorOnlyWhenAsked(t *testing.T) {
+	u := testUI(t)
+	u.osd = newIndicator(u.sh.App)
+	u.osd.tr.OnShow = nil
+	defer u.osd.tr.Hide()
+	rec := &notify.Recorder{}
+	r := routingNotifier{u: u, bus: rec}
+	u.statusOK = true
+	u.status = core.StatusResult{Config: config.Default()}
+
+	_, _ = r.Send(notify.Notification{Kind: notify.KindSwitched, Title: "Audio Switched", Body: "Output: Headset\nInput: Mic"})
+	require.Len(t, rec.Sent, 1)
+	require.False(t, u.osd.tr.Shown())
+
+	u.status.Config.SwitchInOSD = true
+	_, _ = r.Send(notify.Notification{Kind: notify.KindSwitched, Title: "Audio Switched", Body: "Output: Headset\nInput: Mic"})
+	require.Len(t, rec.Sent, 1, "a switch was notified although the indicator shows it")
+	require.True(t, u.osd.tr.Shown())
+	require.Equal(t, "Headset", u.osd.value.Text)
+	require.False(t, u.osd.meter.Object().Visible(), "the meter showed on a switch")
+
+	_, _ = r.Send(notify.Notification{Kind: notify.KindFailure, Title: "Switch Failed"})
+	require.Len(t, rec.Sent, 2, "a failure did not reach the desktop")
+
+	u.osd.show(volumeSnapshot{percent: 40}, true)
+	require.True(t, u.osd.meter.Object().Visible(), "the meter did not come back for the volume")
 }
 
 // TestTheValueTextTakesTheSettingsSize: the size is the setting, applied at

@@ -303,7 +303,7 @@ what this spec proposes as library work under "Gaps found":
   volume keys, each a switch that says what it changes and how it is undone.
 - R10.5 Appearance and About: the library's.
 
-### R11. Volume keys, bound and unbound by the program
+### R11. Volume keys, bound and unbound by the program (done)
 
 The original's `install.sh --bind-volume-keys` set the kmix `increase_volume`
 and `decrease_volume` shortcuts to `none` in `kglobalshortcutsrc`, backed the
@@ -337,8 +337,10 @@ practice rather than by design.
   registered nothing. After the connection closes the shortcut stays,
   written to `kglobalshortcutsrc` under `[services][file]` as `_launch=`
   within two seconds; `unregister(file, "_launch")` removes it and the
-  line. The key is a Qt key combination integer: `Volume Up` is
-  `0x01000070`, `Volume Down` `0x01000071`, modifiers or-ed in
+  line. The key is a Qt key combination integer: `Volume Down` is
+  `0x01000070`, `Volume Mute` `0x01000071`, `Volume Up` `0x01000072` (the
+  first build had Up and Down one off, and the shortcuts file named the
+  keys it had really bound), modifiers or-ed in
   (`Meta=0x10000000`, `Shift=0x02000000`). On this machine `Volume Up` and
   `Volume Down` are held by the old program's `net.local.audio-source-
   switcher-3.desktop` and `-4.desktop`; R11.1's record of what held the keys
@@ -373,7 +375,7 @@ Port (later PRs, one per requirement group):
 - [x] R8: the indicator, after the R8.4 experiment is recorded here. (PR: feat/indicator. A glance window with one meter, held 1.5 s, placed on the pointer's screen through KWin's scripting at each show; shown by the hotkey path and by the sink subscription, debounced and deduplicated. The window rule is a switch in Settings and part of `--desktop install`; it needs fynedesygn's titled rule, pinned at the merged commit until 0.1.44 is tagged.)
 - [ ] R9: Bluetooth, headset, loopback, tray. R9.1 and R9.2 done (PR: feat/bluetooth-headset): the adapter over the system bus and headsetcontrol are the device model's inputs, and an away Bluetooth device is connected and waited for before the switch. The device path is found by address rather than assumed under hci0. R9.4 done (PR: feat/tray-and-tick): tray with Show, About and Quit; close hides to the tray and the tick continues; without a tray, close quits. R9.3 done (PR: feat/loopback): the systemd unit when installed, else a pw-loopback child of the window, restored at start; the line-in source is found by its active port's name and description rather than the port type, which the protocol client does not carry.
 - [ ] R10: the sections, with headless tests naming the defect each prevents. R10.1, R10.2 and R10.4 done (PRs: feat/tray-and-tick, feat/sections): the list with Switch to, Connect, Disconnect, Move up and Move down on the selected row, the auto-switch check, and the playing device's volume and mute; the Microphone section; the Settings switches. R10.3 done (PR: feat/headset-section): the Headset card in Settings, with the battery and the idle timeout committed on Enter. The desktop steps in Settings remain.
-- [ ] D9, D10, R11: desktop steps, the volume keys bound and restored by the program, and single instance. D10 done (PR: feat/single-instance): an flock and a Unix socket in the runtime directory; a second launch shows the first window; `--vol-up`, `--vol-down` and `--connect` are answered by the running instance and act on their own only when none runs. D9 done (PR: feat/indicator): autostart and the indicator's window rule are switches in Settings and `--desktop install|uninstall`. R11 remains.
+- [ ] D9, D10, R11: desktop steps, the volume keys bound and restored by the program, and single instance. D10 done (PR: feat/single-instance): an flock and a Unix socket in the runtime directory; a second launch shows the first window; `--vol-up`, `--vol-down` and `--connect` are answered by the running instance and act on their own only when none runs. D9 done (PR: feat/indicator): autostart and the indicator's window rule are switches in Settings and `--desktop install|uninstall`. R11 done (PR: feat/switch-in-the-indicator): the volume keys are a switch; what held them is recorded and released, ototo's two command shortcuts are registered through kglobalaccel with the keys forced (NoAutoloading), and turning it off gives the keys back. Verified on this desktop: the old program's two custom shortcuts released, ototo's registered, the mixer's mute untouched.
 - [ ] The original is retired from ag-scripts' README with a pointer here.
 
 ## Risks & Assumptions

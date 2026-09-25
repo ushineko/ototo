@@ -151,6 +151,7 @@ type SetSwitchesRequest struct {
 	OSDEnabled          *bool
 	OSDTextSize         *int
 	SwitchNotifications *bool
+	SwitchInOSD         *bool
 	MoveStreams         *bool
 }
 
@@ -159,6 +160,9 @@ const (
 	OSDTextSizeMin = 8
 	OSDTextSizeMax = 96
 )
+
+// OSDTextSizes are the sizes the window offers, in points.
+var OSDTextSizes = []int{16, 20, 24, 28, 32, 40, 48, 64}
 
 // SetSwitches writes the switches that are set.
 func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, error) {
@@ -177,6 +181,9 @@ func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, erro
 	}
 	if req.SwitchNotifications != nil {
 		cfg.SwitchNotifications = *req.SwitchNotifications
+	}
+	if req.SwitchInOSD != nil {
+		cfg.SwitchInOSD = *req.SwitchInOSD
 	}
 	if req.MoveStreams != nil {
 		cfg.MoveStreams = *req.MoveStreams

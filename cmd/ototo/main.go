@@ -49,7 +49,7 @@ func run() int {
 	volUp := flag.Bool("vol-up", false, "turn the playing output up one step and exit")
 	volDown := flag.Bool("vol-down", false, "turn the playing output down one step and exit")
 	desktopStep := flag.String("desktop", "",
-		"install or uninstall the desktop steps (autostart, the indicator's window rule) and exit")
+		"install or uninstall the desktop steps (autostart, the indicator's window rule, the volume keys) and exit")
 	version := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -176,8 +176,8 @@ func desktopFlag(base core.Request, verb string) int {
 		fmt.Fprintln(os.Stderr, "ototo: --desktop takes install or uninstall, not", verb)
 		return 2
 	}
-	st, err := core.SetDesktop(context.Background(), core.SetDesktopRequest{Request: base, Autostart: &on, IndicatorRule: &on})
-	fmt.Printf("autostart: %s\nindicator window rule: %s\n", onOff(st.Autostart), onOff(st.IndicatorRule))
+	st, err := core.SetDesktop(context.Background(), core.SetDesktopRequest{Request: base, Autostart: &on, IndicatorRule: &on, VolumeKeys: &on})
+	fmt.Printf("autostart: %s\nindicator window rule: %s\nvolume keys: %s\n", onOff(st.Autostart), onOff(st.IndicatorRule), onOff(st.VolumeKeys))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ototo:", err)
 		return 1

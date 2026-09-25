@@ -2,7 +2,6 @@ package gui
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -40,6 +39,9 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 	notes := check("Notify on an automatic switch", cfg.SwitchNotifications, func(on bool) {
 		u.setSwitches(core.SetSwitchesRequest{SwitchNotifications: &on})
 	})
+	inOSD := check("Show a switch in the indicator instead of a notification", cfg.SwitchInOSD, func(on bool) {
+		u.setSwitches(core.SetSwitchesRequest{SwitchInOSD: &on})
+	})
 	osd := check("Show the volume indicator", cfg.OSDEnabled, func(on bool) {
 		u.setSwitches(core.SetSwitchesRequest{OSDEnabled: &on})
 	})
@@ -51,6 +53,8 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 				"were until they restart."),
 			widgets.WithTip(notes, "A desktop notification names the new output and input. A switch that fails is "+
 				"always reported."),
+			widgets.WithTip(inOSD, "The indicator shows the new output for a moment, the way it shows the volume, "+
+				"and no notification is sent. A switch that fails is still a notification."),
 		),
 		widgets.Card("Volume indicator",
 			widgets.WithTip(osd, "The small panel that appears when the volume changes. Off, the desktop's own "+
@@ -66,20 +70,29 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 	)
 }
 
-// osdSizeRow is the indicator's text size, committed on Enter.
+// osdSizeRow is the indicator's text size: a selector of the sizes offered,
+// with a value from an older file shown as it is.
 func (u *ui) osdSizeRow() fyne.CanvasObject {
-	size := widget.NewEntry()
-	size.Validator = forms.IntRange(core.OSDTextSizeMin, core.OSDTextSizeMax)
-	size.SetText(strconv.Itoa(u.status.Config.OSDTextSize))
-	size.OnSubmitted = func(text string) {
-		if n, err := strconv.Atoi(strings.TrimSpace(text)); err == nil && n != u.status.Config.OSDTextSize {
+	current := strconv.Itoa(u.status.Config.OSDTextSize)
+	options := make([]string, 0, len(core.OSDTextSizes)+1)
+	seen := false
+	for _, n := range core.OSDTextSizes {
+		options = append(options, strconv.Itoa(n))
+		seen = seen || n == u.status.Config.OSDTextSize
+	}
+	if !seen {
+		options = append(options, current)
+	}
+	size := widget.NewSelect(options, nil)
+	size.SetSelected(current)
+	size.OnChanged = func(text string) {
+		if n, err := strconv.Atoi(text); err == nil && n != u.status.Config.OSDTextSize {
 			u.setSwitches(core.SetSwitchesRequest{OSDTextSize: &n})
 		}
 	}
 	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Indicator text size"), nil,
 		widgets.FixedWidth(size, forms.NumericWidth)),
-		fmt.Sprintf("Points, %d to %d. Press Enter to apply; the next change of volume shows it.",
-			core.OSDTextSizeMin, core.OSDTextSizeMax))
+		"Points. The next change of volume shows it.")
 }
 
 /*
@@ -192,9 +205,15 @@ func (u *ui) desktopCard() fyne.CanvasObject {
 	rule := check("Install the indicator's window rule (KDE Plasma)", dt.IndicatorRule, func(on bool) {
 		u.setDesktop(core.SetDesktopRequest{IndicatorRule: &on})
 	})
+	keys := check("Use the volume keys for ototo (KDE Plasma)", dt.VolumeKeys, func(on bool) {
+		u.setDesktop(core.SetDesktopRequest{VolumeKeys: &on})
+	})
 	rows := []fyne.CanvasObject{
 		widgets.WithTip(autostart, "Writes one desktop entry under your autostart directory, and removes it "+
 			"when turned off."),
+		widgets.WithTip(keys, "Volume Up and Volume Down run ototo, which changes the volume and shows the "+
+			"indicator. What held the keys before is recorded and released; turned off, ototo's shortcuts are "+
+			"removed and the keys go back to it."),
 		widgets.WithTip(rule, "Writes one rule into kwinrulesrc so the indicator has no titlebar, stays above "+
 			"other windows, stays out of the taskbar and never takes the focus. Turned off, the rule is removed. "+
 			"Without it the indicator still appears, with a titlebar."),

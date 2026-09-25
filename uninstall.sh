@@ -85,4 +85,4 @@ done
 echo
 echo "If you installed the autostart entry, the KWin rule for the volume indicator"
 echo "or the volume-key bindings from inside ototo, undo them first with:"
-echo "    ototo --desktop-uninstall"
+echo "    ototo --desktop uninstall"

@@ -87,13 +87,13 @@ func TestASettingsSwitchWritesOneKey(t *testing.T) {
 	loaded(u)
 	body := u.buildSettings()
 	checks := fynetest.All[*widget.Check](body)
-	require.Len(t, checks, 5, "three settings switches and two desktop steps")
-	for _, c := range checks[:3] {
-		require.True(t, c.Checked)
-	}
-	entries := fynetest.All[*widget.Entry](body)
-	require.NotEmpty(t, entries)
-	entries[0].OnSubmitted("48") // the indicator text size is the first entry
+	require.Len(t, checks, 7, "four settings switches and three desktop steps")
+	require.True(t, checks[0].Checked && checks[1].Checked && checks[3].Checked)
+	require.False(t, checks[2].Checked, "switches in the indicator is off by default")
+	sizes := fynetest.All[*widget.Select](body)
+	require.NotEmpty(t, sizes)
+	require.Equal(t, "32", sizes[0].Selected, "the indicator text size is the first selector")
+	sizes[0].SetSelected("48")
 	cfgSize, _, err := config.Load("")
 	require.NoError(t, err)
 	require.Equal(t, 48, cfgSize.OSDTextSize)
