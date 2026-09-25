@@ -207,7 +207,7 @@ func (u *ui) soundCard() fyne.CanvasObject {
 	}
 	play := widget.NewButtonWithIcon("Play it now", theme.MediaPlayIcon(), func() {
 		u.sh.Load("Playing...", func(context.Context) error {
-			return core.PlaySwitchSound(u.server, "", u.status.Config)
+			return core.PlaySwitchSound(u.server, "", 0, u.status.Config)
 		})
 	})
 	return widgets.Card("Sound on a switch",

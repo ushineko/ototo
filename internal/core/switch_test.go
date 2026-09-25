@@ -281,7 +281,7 @@ func TestTheSwitchSoundPlaysOncePerChangeOfHardware(t *testing.T) {
 	w.cfg.SwitchSoundFile = "~/chime.wav"
 	w.save(t)
 	played := make(chan string, 4)
-	w.sw.Player = func(_, _ string, cfg config.Config) error { played <- cfg.SwitchSoundFile; return nil }
+	w.sw.Player = func(_, _ string, _ time.Duration, cfg config.Config) error { played <- cfg.SwitchSoundFile; return nil }
 	for range 2 {
 		_, err := w.sw.Switch(context.Background(), SwitchRequest{Request: w.req(), Target: "headset"})
 		require.NoError(t, err)
@@ -310,7 +310,7 @@ func TestTheSwitchSoundWaitsForTheRouteAndPlaysIntoTheDevice(t *testing.T) {
 	w.g.lagAfterLink = 3
 	type play struct{ sink, target string }
 	played := make(chan play, 1)
-	w.sw.Player = func(_, sink string, _ config.Config) error {
+	w.sw.Player = func(_, sink string, _ time.Duration, _ config.Config) error {
 		played <- play{sink: sink, target: w.g.target}
 		return nil
 	}
@@ -326,12 +326,37 @@ func TestTheSwitchSoundWaitsForTheRouteAndPlaysIntoTheDevice(t *testing.T) {
 	}
 }
 
-// TestTheLeadIsLongerOverBluetooth: a Bluetooth sink gets the longer
-// silence in front of the sound; a wired one the short.
-func TestTheLeadIsLongerOverBluetooth(t *testing.T) {
-	require.Equal(t, bluetoothLead, leadFor(airpods))
-	require.Equal(t, soundLead, leadFor(headsetSink))
-	require.Equal(t, soundLead, leadFor(""))
+// TestAFreshSinkGetsTheLongLead: a sink there at the first listing gets
+// the short silence; one that appeared since, or was never listed, the
+// long one, since headphones that just connected are not rendering yet
+// and play a chime of their own.
+func TestAFreshSinkGetsTheLongLead(t *testing.T) {
+	s := &Switcher{}
+	s.noteSinks([]audio.Device{{Name: speakers}, {Name: headsetSink}})
+	require.Equal(t, soundLead, s.leadFor(headsetSink))
+	s.noteSinks([]audio.Device{{Name: speakers}, {Name: headsetSink}, {Name: airpods}})
+	require.Equal(t, freshLead, s.leadFor(airpods))
+	require.Equal(t, freshLead, s.leadFor("bluez_output.never_listed"))
+	require.Equal(t, soundLead, s.leadFor(speakers))
+}
+
+// TestTheConnectedDeviceIsFreshToTheSound: the sink that appears after a
+// connect (R5.5) is played into after the long lead.
+func TestTheConnectedDeviceIsFreshToTheSound(t *testing.T) {
+	w := newWorld(t, false)
+	w.cfg.SwitchSound = true
+	w.save(t)
+	w.bt = []devices.Bluetooth{{MAC: "AA:BB:CC:DD:EE:FF", Name: "AirPods"}}
+	leads := make(chan time.Duration, 1)
+	w.sw.Player = func(_, _ string, lead time.Duration, _ config.Config) error { leads <- lead; return nil }
+	_, err := w.sw.Switch(context.Background(), SwitchRequest{Request: w.req(), Target: "AirPods"})
+	require.NoError(t, err)
+	select {
+	case lead := <-leads:
+		require.Equal(t, freshLead, lead)
+	case <-time.After(3 * time.Second):
+		t.Fatal("the switch sound did not play")
+	}
 }
 
 // TestTheSwitchSoundIsTriedOnceMore: a stream the server refused is tried
@@ -342,7 +367,7 @@ func TestTheSwitchSoundIsTriedOnceMore(t *testing.T) {
 	w.save(t)
 	tries := make(chan int, 4)
 	n := 0
-	w.sw.Player = func(_, _ string, _ config.Config) error {
+	w.sw.Player = func(_, _ string, _ time.Duration, _ config.Config) error {
 		n++
 		tries <- n
 		if n == 1 {

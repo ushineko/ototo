@@ -234,8 +234,9 @@ window does not carry pictures of the window.
   the new default and, through JamesDSP, once the graph reports the filter
   linked to the new device, and it plays into the device's own sink, so it
   is no longer lost in a sink that is still being rewired. It leads with
-  silence, longer over Bluetooth, since headphones that just connected take
-  a moment to render anything and only a playing stream starts them.
+  silence, 2 s for a device that just appeared, since headphones that just
+  connected take a moment to render anything, play a chime of their own
+  first, and only a playing stream starts them.
 - A switch holds the indicator for 3 s, twice a key press's 1.5 s.
 
 ### 0.1.2

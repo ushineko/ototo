@@ -80,15 +80,39 @@ type Switcher struct {
 	Notifier notify.Notifier
 	// Loopback is the line-in loopback (R9.3); nil uses the real commands.
 	Loopback *loopback.Loopback
-	// Player plays the switch sound into sink; nil plays over the sound
-	// server.
-	Player func(server, sink string, cfg config.Config) error
+	// Player plays the switch sound into sink after lead of silence; nil
+	// plays over the sound server.
+	Player func(server, sink string, lead time.Duration, cfg config.Config) error
 
 	dial func(server string) (server, error)
 
 	mu           sync.Mutex
 	jdspBroken   bool
 	lastPhysical string
+	// seen is when each sink was first listed; zero for the ones there at
+	// the first listing. A sink first seen a moment ago is fresh (leadFor).
+	seen map[string]time.Time
+}
+
+// noteSinks records the sinks listed now; the first listing is the machine
+// as found, and nothing in it is fresh.
+func (s *Switcher) noteSinks(sinks []audio.Device) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	first := s.seen == nil
+	if first {
+		s.seen = map[string]time.Time{}
+	}
+	for _, d := range sinks {
+		if _, ok := s.seen[d.Name]; ok {
+			continue
+		}
+		if first {
+			s.seen[d.Name] = time.Time{}
+		} else {
+			s.seen[d.Name] = time.Now()
+		}
+	}
 }
 
 // NewSwitcher is a Switcher over the real server and graph.
@@ -214,6 +238,7 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 	if err != nil {
 		return SwitchResult{}, err
 	}
+	s.noteSinks(sinks)
 	dev, ok := Resolve(list, req.Target)
 	if !ok {
 		return SwitchResult{}, fmt.Errorf("%w %q", ErrNotFound, req.Target)
@@ -245,6 +270,7 @@ func (s *Switcher) list(srv server, in devices.Inputs) ([]devices.Device, error)
 	if err != nil {
 		return nil, err
 	}
+	s.noteSinks(sinks)
 	in.Sinks, in.DefaultSink = sinks, info.DefaultSink
 	return devices.List(in), nil
 }
@@ -446,22 +472,36 @@ so a wrong reading costs a delay and not the sound.
 
 A sink that was just resumed needs a moment before its first samples are
 heard, and only a playing stream starts it, so the clip leads with silence
-rather than waiting: soundLead for a sink on a wire, bluetoothLead for one
-over Bluetooth, which exists well before the headphones render anything. A
-stream the server refused is tried once more after soundRetry.
+rather than waiting: soundLead for a sink that has been there, freshLead
+for one first seen within freshFor, such as headphones that just connected,
+whose sink exists well before they render anything and which play a chime
+of their own over the first seconds. A stream the server refused is tried
+once more after soundRetry.
 */
 const (
-	routeSettle   = 1500 * time.Millisecond
-	routePoll     = 50 * time.Millisecond
-	soundLead     = 100 * time.Millisecond
-	bluetoothLead = 750 * time.Millisecond
-	soundRetry    = 300 * time.Millisecond
+	routeSettle = 1500 * time.Millisecond
+	routePoll   = 50 * time.Millisecond
+	soundLead   = 100 * time.Millisecond
+	freshLead   = 2 * time.Second
+	freshFor    = 15 * time.Second
+	soundRetry  = 300 * time.Millisecond
 )
 
-// leadFor is the silence in front of the switch sound for sink.
-func leadFor(sink string) time.Duration {
-	if strings.HasPrefix(sink, "bluez_output.") {
-		return bluetoothLead
+// leadFor is the silence in front of the switch sound for sink: freshLead
+// for a sink first seen within freshFor, or never listed before now.
+func (s *Switcher) leadFor(sink string) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.seen[sink]
+	if !ok {
+		if s.seen == nil {
+			s.seen = map[string]time.Time{}
+		}
+		t = time.Now()
+		s.seen[sink] = t
+	}
+	if !t.IsZero() && time.Since(t) < freshFor {
+		return freshLead
 	}
 	return soundLead
 }
@@ -504,17 +544,17 @@ func (s *Switcher) play(server, sink string, cfg config.Config) error {
 	if s.Player != nil {
 		play = s.Player
 	}
-	if err := play(server, sink, cfg); err == nil {
+	lead := s.leadFor(sink)
+	if err := play(server, sink, lead, cfg); err == nil {
 		return nil
 	}
 	time.Sleep(soundRetry)
-	return play(server, sink, cfg)
+	return play(server, sink, lead, cfg)
 }
 
 // PlaySwitchSound plays what the settings name, the WAV file or the chime,
-// into sink, or the default output when sink is "", after the lead of
-// silence the sink needs.
-func PlaySwitchSound(server, sink string, cfg config.Config) error {
+// into sink, or the default output when sink is "", after lead of silence.
+func PlaySwitchSound(server, sink string, lead time.Duration, cfg config.Config) error {
 	sound := audio.Chime()
 	if cfg.SwitchSoundFile != "" {
 		var err error
@@ -522,7 +562,7 @@ func PlaySwitchSound(server, sink string, cfg config.Config) error {
 			return err
 		}
 	}
-	return audio.Play(server, sink, sound.WithLead(leadFor(sink)))
+	return audio.Play(server, sink, sound.WithLead(lead))
 }
 
 // req names the server a connection was made to, for a sound played beside
