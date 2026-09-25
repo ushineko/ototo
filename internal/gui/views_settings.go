@@ -210,12 +210,26 @@ func (u *ui) soundCard() fyne.CanvasObject {
 			return core.PlaySwitchSound(u.server, "", 0, u.status.Config)
 		})
 	})
+	// Commits on Enter, as the headset's idle entry does.
+	delay := widget.NewEntry()
+	delay.Validator = forms.IntRange(0, core.SwitchSoundDelayMax)
+	delay.SetText(strconv.Itoa(cfg.SwitchSoundDelay))
+	delay.OnSubmitted = func(text string) {
+		if n, err := strconv.Atoi(strings.TrimSpace(text)); err == nil && n != u.status.Config.SwitchSoundDelay {
+			u.setSwitches(core.SetSwitchesRequest{SwitchSoundDelay: &n})
+		}
+	}
 	return widgets.Card("Sound on a switch",
 		widgets.WithTip(on, "Played on the device that just became the output, after the switch, so it "+
 			"comes out of the new device."),
 		widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Sound file"), play,
 			dialogs.WithBrowse(u.sh.Window, file, false)),
 			"A 16-bit PCM WAV file. Press Enter to apply; empty means the built-in chime."),
+		widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("After a device connects, wait seconds"), nil,
+			widgets.FixedWidth(delay, forms.NumericWidth)),
+			"Headphones that just connected take a while before they play anything, and their own "+
+				"connect chime comes first; a sound played before that is lost. Sony WH-1000XM6 need about "+
+				"ten seconds. Press Enter to apply."),
 	)
 }
 

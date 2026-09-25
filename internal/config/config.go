@@ -55,8 +55,12 @@ type Config struct {
 	SwitchInOSD bool `json:"switch_in_osd"`
 	// SwitchSound plays a sound on the new output when the output switches:
 	// the built-in chime, or the WAV file SwitchSoundFile names.
-	SwitchSound     bool   `json:"switch_sound"`
-	SwitchSoundFile string `json:"switch_sound_file"`
+	// SwitchSoundDelay is how many seconds after a switch to a device that
+	// just appeared the sound plays: headphones that just connected take
+	// a while to render anything, a WH-1000XM6 about ten seconds.
+	SwitchSound      bool   `json:"switch_sound"`
+	SwitchSoundFile  string `json:"switch_sound_file"`
+	SwitchSoundDelay int    `json:"switch_sound_delay"`
 	// LoopbackEnabled plays the line-in source through the current output.
 	LoopbackEnabled bool `json:"loopback_enabled"`
 	// LoopbackSource is the line-in source to play, for a machine with more
@@ -70,6 +74,10 @@ type Config struct {
 // is absent: large, because the indicator is read from across the room.
 const DefaultOSDTextSize = 32
 
+// DefaultSwitchSoundDelay is the seconds a device that just appeared gets
+// before the switch sound: enough for the slowest headphones seen.
+const DefaultSwitchSoundDelay = 15
+
 // Default is the document a machine starts with.
 func Default() Config {
 	return Config{
@@ -79,6 +87,7 @@ func Default() Config {
 		OSDTextSize:         DefaultOSDTextSize,
 		SwitchNotifications: true,
 		MoveStreams:         true,
+		SwitchSoundDelay:    DefaultSwitchSoundDelay,
 	}
 }
 

@@ -45,6 +45,15 @@ func TestTheSettingsWritesLandInOneFile(t *testing.T) {
 	require.False(t, cfg.OSDEnabled)
 	require.True(t, cfg.SwitchNotifications, "a switch that was not set changed")
 	require.True(t, cfg.MoveStreams)
+	require.Equal(t, config.DefaultSwitchSoundDelay, cfg.SwitchSoundDelay, "a file without the delay did not get the default")
+
+	delay := 8
+	cfg, err = SetSwitches(ctx, SetSwitchesRequest{Request: w.req(), SwitchSoundDelay: &delay})
+	require.NoError(t, err)
+	require.Equal(t, 8, cfg.SwitchSoundDelay)
+	delay = SwitchSoundDelayMax + 1
+	_, err = SetSwitches(ctx, SetSwitchesRequest{Request: w.req(), SwitchSoundDelay: &delay})
+	require.Error(t, err, "a delay past the bound was taken")
 
 	saved, _, err := config.Load(w.path)
 	require.NoError(t, err)

@@ -332,22 +332,23 @@ func TestTheSwitchSoundWaitsForTheRouteAndPlaysIntoTheDevice(t *testing.T) {
 // sink that went away and came back is fresh again.
 func TestAFreshSinkGetsItsSoundLater(t *testing.T) {
 	s := &Switcher{}
+	cfg := config.Config{SwitchSoundDelay: 7}
 	s.noteSinks([]audio.Device{{Name: speakers}, {Name: headsetSink}})
-	delay, lead := s.soundTiming(headsetSink)
+	delay, lead := s.soundTiming(headsetSink, cfg)
 	require.Equal(t, [2]time.Duration{0, soundLead}, [2]time.Duration{delay, lead})
 
 	s.noteSinks([]audio.Device{{Name: speakers}, {Name: headsetSink}, {Name: airpods}})
-	delay, lead = s.soundTiming(airpods)
-	require.Equal(t, [2]time.Duration{freshDelay, freshLead}, [2]time.Duration{delay, lead})
-	delay, _ = s.soundTiming("bluez_output.never_listed")
-	require.Equal(t, freshDelay, delay)
-	delay, _ = s.soundTiming(speakers)
+	delay, lead = s.soundTiming(airpods, cfg)
+	require.Equal(t, [2]time.Duration{7 * time.Second, freshLead}, [2]time.Duration{delay, lead})
+	delay, _ = s.soundTiming("bluez_output.never_listed", cfg)
+	require.Equal(t, 7*time.Second, delay)
+	delay, _ = s.soundTiming(speakers, cfg)
 	require.Zero(t, delay)
 
 	s.noteSinks([]audio.Device{{Name: speakers}})
 	s.noteSinks([]audio.Device{{Name: speakers}, {Name: headsetSink}})
-	delay, _ = s.soundTiming(headsetSink)
-	require.Equal(t, freshDelay, delay, "a sink that came back was not fresh")
+	delay, _ = s.soundTiming(headsetSink, cfg)
+	require.Equal(t, 7*time.Second, delay, "a sink that came back was not fresh")
 }
 
 // TestTheConnectedDeviceIsFreshToTheSound: the sink that appears after a
@@ -356,11 +357,9 @@ func TestAFreshSinkGetsItsSoundLater(t *testing.T) {
 func TestTheConnectedDeviceIsFreshToTheSound(t *testing.T) {
 	w := newWorld(t, false)
 	w.cfg.SwitchSound = true
+	w.cfg.SwitchSoundDelay = 1
 	w.save(t)
 	w.bt = []devices.Bluetooth{{MAC: "AA:BB:CC:DD:EE:FF", Name: "AirPods"}}
-	old := freshDelay
-	freshDelay = 200 * time.Millisecond
-	t.Cleanup(func() { freshDelay = old })
 	type play struct {
 		lead time.Duration
 		at   time.Time
@@ -376,7 +375,7 @@ func TestTheConnectedDeviceIsFreshToTheSound(t *testing.T) {
 	select {
 	case p := <-played:
 		require.Equal(t, freshLead, p.lead)
-		require.GreaterOrEqual(t, p.at.Sub(returned), 150*time.Millisecond, "the sound did not wait for the delay")
+		require.GreaterOrEqual(t, p.at.Sub(returned), 900*time.Millisecond, "the sound did not wait for the delay")
 	case <-time.After(3 * time.Second):
 		t.Fatal("the switch sound did not play")
 	}

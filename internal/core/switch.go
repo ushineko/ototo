@@ -445,7 +445,7 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 	if changed && cfg.SwitchSound {
 		s.settleRoute(ctx, srv, dev.Sink, res.ViaJamesDSP, ev)
 		server := req(srv)
-		delay, lead := s.soundTiming(dev.Sink)
+		delay, lead := s.soundTiming(dev.Sink, cfg)
 		go func() {
 			time.Sleep(delay)
 			started := time.Now()
@@ -494,10 +494,12 @@ transport is active, and PipeWire consumes a stream at rate while it is
 pending, so the whole clip went by unheard; and then they play a chime of
 their own, muting the stream under it. Measured on a WH-1000XM6: the
 transport went active 1.3 s after the stream started, 0.9 s after a 350 ms
-clip had drained. So the switch returns, and its sound is scheduled for
-freshDelay later from the goroutine that plays it, with freshLead of
-silence in front in case the transport has gone idle again by then. A
-stream the server refused is tried once more after soundRetry.
+clip had drained, and the headphones rendered nothing for about ten
+seconds more, with nothing on the bus to mark the moment they did. So the
+switch returns, and its sound is scheduled from the goroutine that plays
+it for the settings' delay later, with freshLead of silence in front in
+case the transport has gone idle again by then. A stream the server
+refused is tried once more after soundRetry.
 */
 const (
 	routeSettle = 1500 * time.Millisecond
@@ -508,14 +510,11 @@ const (
 	soundRetry  = 300 * time.Millisecond
 )
 
-// freshDelay is how long after the switch a fresh device's sound plays; a
-// variable so a test need not wait it out.
-var freshDelay = 10 * time.Second
-
 // soundTiming is when the switch sound for sink plays: the wait before the
 // stream opens and the silence in front of the clip. A sink first seen
-// within freshFor, or never listed before now, is fresh.
-func (s *Switcher) soundTiming(sink string) (delay, lead time.Duration) {
+// within freshFor, or never listed before now, is fresh and waits the
+// settings' delay.
+func (s *Switcher) soundTiming(sink string, cfg config.Config) (delay, lead time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.seen[sink]
@@ -527,7 +526,7 @@ func (s *Switcher) soundTiming(sink string) (delay, lead time.Duration) {
 		s.seen[sink] = t
 	}
 	if !t.IsZero() && time.Since(t) < freshFor {
-		return freshDelay, freshLead
+		return time.Duration(cfg.SwitchSoundDelay) * time.Second, freshLead
 	}
 	return 0, soundLead
 }

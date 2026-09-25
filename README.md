@@ -235,9 +235,11 @@ window does not carry pictures of the window.
   linked to the new device, and it plays into the device's own sink, so it
   is no longer lost in a sink that is still being rewired. For a device
   that just appeared, such as headphones that just connected, the sound is
-  scheduled 10 s after the switch instead: their Bluetooth transport is not
-  active until a second after the sink exists, a stream played meanwhile
-  goes by unheard, and their own connect chime mutes what follows.
+  scheduled for later instead, "After a device connects, wait seconds" in
+  Settings, 15 by default: their Bluetooth transport is not active until a
+  second after the sink exists, a stream played meanwhile goes by unheard,
+  and headphones such as the Sony WH-1000XM6 render nothing for about ten
+  seconds more, with nothing on the bus to mark the moment they do.
 - A switch holds the indicator for 3 s, twice a key press's 1.5 s.
 
 ### 0.1.2
