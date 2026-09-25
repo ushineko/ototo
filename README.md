@@ -13,10 +13,18 @@ done this job on a KDE Plasma desktop through thirteen releases, and it
 replaces it. The behaviour is that program's; the spec is
 [`specs/001`](specs/001-port-audio-source-switcher.md).
 
-*Nothing from your machine lives in this repository: no device name, no
-address, no settings file.*
-
 **Version**: 0.1.0
+
+![The Outputs section. A Sound server card lists the server, the default
+output and input, and three inputs. A Volume card for "Example Audio DAC -
+Headphones" shows a slider at 40 and a Mute check. Buttons: Switch to,
+Connect, Disconnect, Move up, Move down; a checked "Switch automatically to
+the first available device". A table of six devices in priority order:
+"Example Earbuds" away, "Example Arctis Nova Headset [87%]" ready at 55%,
+"Example Audio DAC - Headphones" playing at 40% in green, "HDMI Audio" ready
+at 100%, "Built-in Audio - Line Out" disconnected in amber, "Living room
+speaker" away. The status bar names the server and the playing
+output.](assets/screenshot-outputs.png)
 
 ## Table of Contents
 
@@ -94,7 +102,21 @@ unaffected.
 
 `--section` and `--scheme` open the window on a section in a colour scheme
 without saving either, for the screenshot harness. `--config` and `--server`
-point it at another settings file or another sound server.
+point it at another settings file or another sound server; `--server
+demo:<file>` is an in-memory server over the devices the file describes,
+which is what the screenshots are taken over.
+
+![The Microphone section. One row per output, each with a selector: every row
+reads "Match automatically" except "HDMI Audio - HDMI / DisplayPort", which
+reads "Example Desk Mic". A note above explains that automatic matching
+picks the input on the same device as the output.](assets/screenshot-microphone.png)
+
+![The Settings section. Switching: "Move playing audio to the new output"
+checked, and "On an automatic switch" set to "Show it in the indicator".
+Volume indicator: shown, text size 32, font "the window's font" with Choose
+and reset buttons. Headset: battery 87%, idle minutes 0. Line-in loopback:
+on, source "Example DAC Line In". Desktop: "Start ototo at login" and "Use
+the volume keys for ototo (KDE Plasma)", both off.](assets/screenshot-settings.png)
 
 ## Where things live
 
@@ -136,9 +158,14 @@ specs/                the design of record
 ## Testing
 
 ```
-make test     # headless; the audio test skips where no sound server listens
-make lint     # golangci-lint, pinned and checksum-verified on first run
+make test         # headless; the audio test skips where no sound server listens
+make lint         # golangci-lint, pinned and checksum-verified on first run
+make screenshots  # refresh the README images (KDE/Wayland; kdotool and spectacle)
 ```
+
+The screenshots are taken over a demo sound server of invented devices, in a
+throwaway home and runtime directory, so nothing of the machine that takes
+them appears in the repository.
 
 ## Changelog
 

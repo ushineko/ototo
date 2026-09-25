@@ -19,11 +19,11 @@
 #      window grab returns the dialog alone. For those shots pass --with-dialog:
 #      it captures the whole desktop and crops to the window's geometry.
 #
-# The window is pointed at a settings file this script writes and throws away,
-# under a temporary HOME, so no path of anyone's appears in a committed
-# screenshot. What it cannot fake is the sound server: the outputs in the image
-# are the outputs of the machine the script runs on. Check that the device
-# names in a capture are ones you are happy to publish.
+# Nothing in these images comes from the person running the script. The window
+# is pointed at a demo sound server (--server demo:<file>): a file this script
+# writes with invented devices and documentation-range addresses, under a
+# temporary HOME and a runtime directory of its own, so the tray instance is
+# untouched and no device of anyone's appears in a committed screenshot.
 #
 # Requires kdotool (Wayland's xdotool), spectacle, and python3 with Pillow.
 set -euo pipefail
@@ -44,7 +44,9 @@ usage: tools/screenshot.sh [--with-dialog] [--scheme NAME] --section NAME <outpu
                   the active window (which would be the dialog on its own)
   --all           refresh the README set into assets/, then print the alt-text reminder
 
-  assets/screenshot-outputs.png    the outputs the sound server can see
+  assets/screenshot-outputs.png     the device list, the playing device and its volume
+  assets/screenshot-microphone.png  which input follows each output
+  assets/screenshot-settings.png    the switches and the desktop steps
 
 The alt text in README.md describes what is actually in each image. It is the only
 description a screen-reader user gets, and a stale one is worse than none -- check it
@@ -81,18 +83,71 @@ python3 -c "import PIL" 2>/dev/null || { echo "python3 Pillow is not installed" 
 # "/tmp/tmp.4Xk9aP/..." reads as a mistake.
 DEMO_ROOT="${TMPDIR:-/tmp}/ototo-demo"
 
-# demo builds the world the captures are taken in: a throwaway HOME and a
-# settings file with an example priority order.
+# demo builds the world the captures are taken in: a throwaway HOME, a demo
+# sound server of invented devices, and a settings file with an order.
 demo() {
     DEMO="$DEMO_ROOT"
+    # A demo window left by an interrupted run would be a second window with
+    # this title; it is stopped by its command line, read from /proc so that
+    # this script's own command line cannot match.
+    for p in $(pgrep -x ototo 2>/dev/null); do
+        if tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -- "--server demo:$DEMO/"; then
+            kill "$p" 2>/dev/null || true
+        fi
+    done
     rm -rf "$DEMO"
-    mkdir -p "$DEMO/home/.config" "$DEMO/home/.local/share" "$DEMO/home/.cache"
+    mkdir -p "$DEMO/home/.config" "$DEMO/home/.local/share" "$DEMO/home/.cache" "$DEMO/run"
+    cat > "$DEMO/devices.json" <<'JSON'
+{
+  "default_sink": "alsa_output.usb-Example_Audio_DAC-00.analog-stereo",
+  "default_source": "alsa_input.usb-Example_Audio_DAC-00.analog-stereo-linein",
+  "sinks": [
+    {"name": "alsa_output.usb-Example_Audio_DAC-00.analog-stereo", "description": "Example DAC",
+     "properties": {"device.vendor.name": "Example Audio", "device.product.name": "DAC", "device.bus_path": "usb-1"},
+     "ports": [{"name": "analog-output-headphones", "description": "Headphones", "available": "yes"}],
+     "active_port": "analog-output-headphones", "volume": 40},
+    {"name": "alsa_output.usb-Example_Wireless_Headset-00.analog-stereo", "description": "Example Wireless Headset",
+     "properties": {"device.vendor.name": "Example", "device.product.name": "Arctis Nova Headset", "device.serial": "HS-1"},
+     "volume": 55},
+    {"name": "alsa_output.pci-0000_01_00.1.hdmi-stereo", "description": "Monitor",
+     "properties": {"device.description": "HDMI Audio"},
+     "ports": [{"name": "hdmi-output-0", "description": "HDMI / DisplayPort", "available": "yes"}],
+     "active_port": "hdmi-output-0", "volume": 100},
+    {"name": "alsa_output.pci-0000_00_1f.3.analog-stereo", "description": "Built-in Audio",
+     "properties": {"device.description": "Built-in Audio"},
+     "ports": [{"name": "analog-output-lineout", "description": "Line Out", "available": "no"}],
+     "active_port": "analog-output-lineout", "volume": 85}
+  ],
+  "sources": [
+    {"name": "alsa_input.usb-Example_Audio_DAC-00.analog-stereo-linein", "description": "Example DAC Line In",
+     "properties": {"device.description": "Example DAC Line In", "device.bus_path": "usb-1"},
+     "ports": [{"name": "analog-input-linein", "description": "Line In", "available": "yes"}],
+     "active_port": "analog-input-linein"},
+    {"name": "alsa_input.usb-Example_Wireless_Headset-00.mono", "description": "Example Wireless Headset Microphone",
+     "properties": {"device.description": "Example Wireless Headset Microphone", "device.serial": "HS-1"}},
+    {"name": "alsa_input.usb-Example_Desk_Mic-00.mono", "description": "Example Desk Mic",
+     "properties": {"device.description": "Example Desk Mic"}}
+  ],
+  "bluetooth": [
+    {"mac": "AA:BB:CC:DD:EE:FF", "name": "Example Earbuds"},
+    {"mac": "00:11:22:33:44:55", "name": "Living room speaker"}
+  ],
+  "headset": {"detected": true, "battery": "87%"}
+}
+JSON
     cat > "$DEMO/config.json" <<'JSON'
 {
-  "device_priority": [],
+  "device_priority": [
+    "bt:AA:BB:CC:DD:EE:FF",
+    "alsa_output.usb-Example_Wireless_Headset-00.analog-stereo",
+    "alsa_output.usb-Example_Audio_DAC-00.analog-stereo",
+    "alsa_output.pci-0000_01_00.1.hdmi-stereo"
+  ],
   "auto_switch": true,
+  "mic_links": {"alsa_output.pci-0000_01_00.1.hdmi-stereo": "alsa_input.usb-Example_Desk_Mic-00.mono"},
   "osd_enabled": true,
   "switch_notifications": true,
+  "switch_in_osd": true,
   "move_streams": true
 }
 JSON
@@ -107,33 +162,44 @@ demo_cleanup() {
 capture() {
     local sect="$1" dest="$2"
 
-    # Wait for any previous instance to be gone before starting the next.
-    local gone=0
-    while [ "$gone" -lt 40 ]; do
-        [ -z "$(timeout 10 kdotool search --class "$CLASS" 2>/dev/null || true)" ] && break
-        sleep 0.25
-        gone=$((gone + 1))
-    done
-
     # HOME and the XDG directories are redirected so the window cannot reach a
     # remembered setting. XDG_RUNTIME_DIR is deliberately NOT: that is where the
     # Wayland display socket and the sound server's socket live.
     HOME="$DEMO/home" XDG_CONFIG_HOME="$DEMO/home/.config" \
         XDG_DATA_HOME="$DEMO/home/.local/share" XDG_CACHE_HOME="$DEMO/home/.cache" \
-        "$BIN" --config "$DEMO/config.json" --section "$sect" \
+        OTOTO_RUNTIME_DIR="$DEMO/run" \
+        "$BIN" --config "$DEMO/config.json" --server "demo:$DEMO/devices.json" --section "$sect" \
         ${scheme:+--scheme "$scheme"} >/dev/null 2>&1 &
     local pid=$!
     # shellcheck disable=SC2064  # pid is captured deliberately, at trap-set time
     trap "kill $pid 2>/dev/null || true; wait $pid 2>/dev/null || true" RETURN
 
+    # The window is the one this binary just opened, and not any other ototo
+    # on this desktop: the tray instance has a window of the same class, and a
+    # capture of it would be a capture of the developer's own devices. kdotool
+    # 0.3 ignores --pid, so the match is the class and the exact title, which
+    # carries this binary's version; and if that still finds more than one
+    # window, nothing is captured, because a guess here is the wrong picture.
+    local title; title="ototo $("$BIN" --version | awk '{print $2}')"
     local wid="" waited=0
     while [ "$waited" -lt 40 ]; do
-        wid=$(timeout 10 kdotool search --class "$CLASS" 2>/dev/null | head -1 || true)
+        local matches=""
+        for candidate in $(timeout 10 kdotool search --class "$CLASS" 2>/dev/null || true); do
+            if [ "$(timeout 10 kdotool getwindowname "$candidate" 2>/dev/null || true)" = "$title" ]; then
+                matches="$matches $candidate"
+            fi
+        done
+        set -- $matches
+        if [ $# -gt 1 ]; then
+            echo "more than one window is titled '$title'; close the others and try again:$matches" >&2
+            return 1
+        fi
+        wid="${1:-}"
         [ -n "$wid" ] && break
         sleep 0.25
         waited=$((waited + 1))
     done
-    [ -n "$wid" ] || { echo "the window never appeared (no window of class $CLASS)" >&2; return 1; }
+    [ -n "$wid" ] || { echo "the window never appeared (no window of class $CLASS titled '$title')" >&2; return 1; }
 
     # Activating is asynchronous, and `spectacle -a` grabs whatever is active at
     # the moment it fires. So: activate, then confirm we have focus before grabbing.
@@ -147,6 +213,10 @@ capture() {
     done
     [ "$active" = "$wid" ] || { echo "could not focus the window (active=$active want=$wid)" >&2; return 1; }
     sleep 1.5                   # let it repaint after the raise, and let its loads land
+    # The geometry the check below compares against is read now, before the
+    # grab: read afterwards, it once described a window that had grown while
+    # the image was being written, and a correct capture was refused.
+    local geo_check; geo_check=$(timeout 10 kdotool getwindowgeometry "$wid" 2>/dev/null || true)
 
     rm -f "$dest"
     if [ "$with_dialog" -eq 0 ]; then
@@ -168,7 +238,6 @@ capture() {
 
     # A last sanity check on the geometry: an image wildly wider or taller than
     # the window we asked for is not a screenshot of it.
-    local geo_check; geo_check=$(timeout 10 kdotool getwindowgeometry "$wid" 2>/dev/null || true)
     python3 - "$dest" "$(printf '%s' "$geo_check" | awk '/Geometry/{print $2}')" <<'PY'
 import sys
 from PIL import Image
@@ -199,7 +268,7 @@ if [ "$all" -eq 1 ]; then
     mkdir -p "${REPO_DIR}/assets"
     demo
     trap demo_cleanup EXIT
-    for s in Outputs; do
+    for s in Outputs Microphone Settings; do
         low=$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')
         capture "$s" "${REPO_DIR}/assets/screenshot-${low}.png"
     done

@@ -32,7 +32,37 @@ type server interface {
 	Close() error
 }
 
-func dialAudio(name string) (server, error) { return audio.Connect(name) }
+/*
+dialAudio is how every operation reaches the sound server. A --server that
+names a demo file gets the in-memory server over that file, one per
+process, so the window's own code runs over invented devices for the
+screenshot harness.
+*/
+func dialAudio(name string) (server, error) {
+	if audio.IsDemo(name) {
+		return demoServer(name)
+	}
+	return audio.Connect(name)
+}
+
+var (
+	demoMu      sync.Mutex
+	demoServers = map[string]*audio.Demo{}
+)
+
+func demoServer(name string) (*audio.Demo, error) {
+	demoMu.Lock()
+	defer demoMu.Unlock()
+	if d, ok := demoServers[name]; ok {
+		return d, nil
+	}
+	d, err := audio.LoadDemo(name)
+	if err != nil {
+		return nil, err
+	}
+	demoServers[name] = d
+	return d, nil
+}
 
 /*
 Switcher is the switching state the original kept on its window across
@@ -177,6 +207,10 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 	if err != nil {
 		return SwitchResult{}, err
 	}
+	sinks, err := srv.Sinks()
+	if err != nil {
+		return SwitchResult{}, err
+	}
 	dev, ok := Resolve(list, req.Target)
 	if !ok {
 		return SwitchResult{}, fmt.Errorf("%w %q", ErrNotFound, req.Target)
@@ -195,7 +229,7 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 		s.jdspBroken = false
 		s.mu.Unlock()
 	}
-	return s.switchTo(ctx, srv, cfg, dev, req.Events)
+	return s.switchTo(ctx, srv, cfg, dev, hasJamesDSP(sinks), req.Events)
 }
 
 // list reads the sinks and builds the device list.
@@ -210,6 +244,18 @@ func (s *Switcher) list(srv server, in devices.Inputs) ([]devices.Device, error)
 	}
 	in.Sinks, in.DefaultSink = sinks, info.DefaultSink
 	return devices.List(in), nil
+}
+
+// hasJamesDSP says the server has the JamesDSP sink. Without it there is
+// nothing to route through, whatever the graph says: the graph is the
+// machine's, and a demo server is not.
+func hasJamesDSP(sinks []audio.Device) bool {
+	for _, s := range sinks {
+		if s.Name == devices.JamesDSPSink {
+			return true
+		}
+	}
+	return false
 }
 
 // How long a Bluetooth device is given to produce a sink after Connect:
@@ -285,12 +331,13 @@ func Resolve(list []devices.Device, target string) (devices.Device, bool) {
 	return devices.Device{}, false
 }
 
-// switchTo is R5.1 and R5.2 for a device that has a sink.
-func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, dev devices.Device, ev Events) (SwitchResult, error) {
+// switchTo is R5.1 and R5.2 for a device that has a sink. jdspSink says
+// the server has the JamesDSP sink; without it the graph is not consulted.
+func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, dev devices.Device, jdspSink bool, ev Events) (SwitchResult, error) {
 	res := SwitchResult{Device: dev}
 
 	useJDSP := false
-	if dev.Sink != devices.JamesDSPSink && !s.JamesDSPBroken() {
+	if jdspSink && dev.Sink != devices.JamesDSPSink && !s.JamesDSPBroken() {
 		outs, err := s.graph().JamesDSPOutputs(ctx)
 		if err != nil && !errors.Is(err, graph.ErrNotAvailable) {
 			ev.logf(LevelWarn, "reading the PipeWire graph: %v", err)

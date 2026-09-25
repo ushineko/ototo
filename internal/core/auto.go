@@ -162,7 +162,7 @@ func (s *Switcher) AutoSwitch(ctx context.Context, req AutoSwitchRequest) (AutoS
 		return res, nil
 	}
 	req.Events.logf(LevelInfo, "auto-switching to %s: %s", d.target.Name, d.reason)
-	sw, err := s.switchTo(ctx, srv, cfg, *d.target, req.Events)
+	sw, err := s.switchTo(ctx, srv, cfg, *d.target, sn.jdspSink, req.Events)
 	if err != nil {
 		return res, err
 	}

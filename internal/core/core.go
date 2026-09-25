@@ -11,6 +11,8 @@ package core
 
 import (
 	"fmt"
+
+	"github.com/ushineko/ototo/internal/audio"
 )
 
 // Level ranks a log line so a front end can present it by importance. The CLI
@@ -78,8 +80,11 @@ type Request struct {
 }
 
 func (r Request) probes() Probes {
-	if r.Probes == nil {
-		return DefaultProbes()
+	if r.Probes != nil {
+		return *r.Probes
 	}
-	return *r.Probes
+	if audio.IsDemo(r.Server) {
+		return demoProbes(r.Server)
+	}
+	return DefaultProbes()
 }

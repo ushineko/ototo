@@ -84,7 +84,7 @@ func Status(ctx context.Context, req StatusRequest) (StatusResult, error) {
 	res.Headset = in.Headset
 	res.HeadsetTool = probes.Headset != nil
 
-	client, err := audio.Connect(req.Server)
+	client, err := dialAudio(req.Server)
 	if err != nil {
 		res.ServerError = err.Error()
 		res.Devices = devices.List(in)

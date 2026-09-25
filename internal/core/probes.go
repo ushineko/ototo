@@ -59,6 +59,30 @@ func DefaultProbes() Probes {
 	return p
 }
 
+// demoProbes are the file's paired devices and headset (audio.DemoFile).
+func demoProbes(server string) Probes {
+	d, err := demoServer(server)
+	if err != nil {
+		return Probes{}
+	}
+	f := d.File()
+	var bt []devices.Bluetooth
+	for _, b := range f.Bluetooth {
+		bt = append(bt, devices.Bluetooth{MAC: b.MAC, Name: b.Name, Connected: b.Connected})
+	}
+	return Probes{
+		Bluetooth: func(context.Context) []devices.Bluetooth { return bt },
+		Connect:   func(context.Context, string) error { return nil },
+		Disconnect: func(context.Context, string) error {
+			return nil
+		},
+		Headset: func(context.Context) devices.Headset {
+			return devices.Headset{Detected: f.Headset.Detected, Battery: f.Headset.Battery}
+		},
+		SetIdle: func(context.Context, int) error { return nil },
+	}
+}
+
 func (p Probes) bluetooth(ctx context.Context) []devices.Bluetooth {
 	if p.Bluetooth == nil {
 		return nil
