@@ -35,8 +35,25 @@ type Notification struct {
 	// Replaces is the id of an earlier notification to update in place, 0
 	// for a new one.
 	Replaces uint32
-	// Timeout in milliseconds; 0 lets the desktop decide, -1 too.
+	// Timeout in milliseconds. Zero here means the desktop's default; a
+	// notification that must stay until dismissed asks for Sticky. On the
+	// wire, 0 is "never expire" and -1 is the default, which is why this
+	// field is not passed through as it is.
 	Timeout int32
+	// Sticky keeps the notification until the person dismisses it.
+	Sticky bool
+}
+
+// expiry is the wire value: -1 for the desktop's default, 0 for never.
+func (n Notification) expiry() int32 {
+	switch {
+	case n.Sticky:
+		return 0
+	case n.Timeout > 0:
+		return n.Timeout
+	default:
+		return -1
+	}
 }
 
 // Notifier sends notifications. Send returns the id the desktop assigned.
@@ -73,7 +90,7 @@ func (b *Bus) Send(n Notification) (uint32, error) {
 	obj := b.conn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
 	var id uint32
 	err := obj.Call("org.freedesktop.Notifications.Notify", 0,
-		AppName, n.Replaces, n.Icon, n.Title, n.Body, []string{}, hints, n.Timeout).Store(&id)
+		AppName, n.Replaces, n.Icon, n.Title, n.Body, []string{}, hints, n.expiry()).Store(&id)
 	if err != nil {
 		return 0, fmt.Errorf("send the notification: %w", err)
 	}
