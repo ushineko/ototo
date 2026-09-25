@@ -27,6 +27,7 @@ import (
 	"github.com/ushineko/ototo/internal/buildinfo"
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/gui"
+	"github.com/ushineko/ototo/internal/instance"
 	"github.com/ushineko/ototo/internal/notify"
 )
 
@@ -79,7 +80,7 @@ func run() int {
 		return oneShot(base, *connect, *volDown)
 	}
 
-	gui.Run(gui.Options{
+	return gui.Run(gui.Options{
 		Version:    buildinfo.Version,
 		Commit:     buildinfo.Commit,
 		ConfigPath: *configPath,
@@ -87,15 +88,34 @@ func run() int {
 		Section:    *section,
 		Scheme:     *scheme,
 	})
-	return 0
 }
 
 /*
-oneShot is the hotkey path: a fresh Switcher, as the original's headless
-mode, with the desktop's notifier so a failure reaches the person who
-pressed the key. Exit 0 when the change was made, 1 when it was not.
+oneShot is the hotkey path. When ototo is running, the request goes to it,
+so the indicator it draws and the switching state it holds are the ones
+that act (D10). Otherwise a fresh Switcher does the work here, as the
+original's headless mode did, with the desktop's notifier so a failure
+reaches the person who pressed the key. Exit 0 when the change was made, 1
+when it was not.
 */
 func oneShot(base core.Request, connect string, volDown bool) int {
+	request := "vol-up"
+	switch {
+	case connect != "":
+		request = "connect " + connect
+	case volDown:
+		request = "vol-down"
+	}
+	if reply, ok := instance.Ask(request); ok {
+		status, text, _ := strings.Cut(reply, " ")
+		if status == "ok" {
+			fmt.Println(text)
+			return 0
+		}
+		fmt.Fprintln(os.Stderr, "ototo:", text)
+		return 1
+	}
+
 	sw := core.NewSwitcher()
 	if bus, err := notify.Session(); err == nil {
 		sw.Notifier = bus

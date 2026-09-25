@@ -16,6 +16,7 @@ package gui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/ushineko/fynedesygn/widgets"
 
 	"github.com/ushineko/ototo/internal/core"
+	"github.com/ushineko/ototo/internal/instance"
 	"github.com/ushineko/ototo/internal/notify"
 )
 
@@ -144,15 +146,36 @@ type Options struct {
 	Scheme  string // color scheme to force; empty means the saved one
 }
 
-// Run opens the window and blocks until it is closed.
-func Run(o Options) {
+/*
+Run opens the window and blocks until it is closed, and returns the exit
+code. When another ototo is already running, it asks that one to show its
+window and returns without opening a second (D10).
+*/
+func Run(o Options) int {
 	u := newUI(o)
+	srv, err := instance.Listen(u.handle)
+	if errors.Is(err, instance.ErrRunning) {
+		if _, ok := instance.Ask("show"); ok {
+			fmt.Fprintln(os.Stderr, "ototo is already running; showing its window")
+			return 0
+		}
+		fmt.Fprintln(os.Stderr, "ototo: another ototo holds the lock but does not answer; is it starting up?")
+		return 1
+	}
+	if err != nil {
+		// Without the listener a second launch does nothing and a hotkey
+		// acts on its own; the window still works.
+		fmt.Fprintln(os.Stderr, "ototo: single-instance listener unavailable:", err)
+	} else {
+		defer srv.Close()
+	}
 	if bus, err := notify.Session(); err == nil {
 		u.sw.Notifier = bus
 	} else {
 		fmt.Fprintln(os.Stderr, "ototo: notifications unavailable:", err)
 	}
 	shell.Run(u.shellOptions(o))
+	return 0
 }
 
 func newUI(o Options) *ui {
