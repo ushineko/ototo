@@ -11,7 +11,8 @@ import (
 // printStatus is --status as text: one fact per line, then the outputs. Plain
 // text with no colour, so it pastes into a bug report as it is.
 func printStatus(w io.Writer, res core.StatusResult) {
-	fact(w, "ototo", fmt.Sprintf("%s (%s)", res.Version, res.Commit))
+	fact(w, "ototo", res.Version)
+	fact(w, "commit", res.Commit)
 	settings := res.ConfigPath
 	if !res.ConfigExists {
 		settings += " (not written yet; defaults in force)"

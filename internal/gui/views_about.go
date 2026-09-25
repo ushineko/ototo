@@ -22,7 +22,7 @@ func (u *ui) about() shell.About {
 	return shell.About{
 		Icon:    appIcon(),
 		Name:    "ototo",
-		Version: u.version + " (" + u.commit + ")",
+		Version: u.version,
 		Blurb: "Keeps your audio on the output you want. Switches to the highest-priority " +
 			"connected device, follows it with the matching microphone, connects Bluetooth " +
 			"headsets, and reroutes JamesDSP so effects never drop out. Native Go over the " +
@@ -38,6 +38,7 @@ func (u *ui) about() shell.About {
 				"is an explicit step, and each one is reversible."},
 		},
 		Facts: []shell.Fact{
+			{Label: "Commit", Value: u.commit},
 			{Label: "Sound server", Value: serverFact(u)},
 			{Label: "Settings file", Value: widgets.OrNone(u.status.ConfigPath, "not read yet")},
 			{Label: "Licence", Value: "MIT"},

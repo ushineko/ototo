@@ -9,8 +9,15 @@ help: ## Show this help
 
 BINDIR=$(shell go env GOPATH)
 MODULE=github.com/ushineko/ototo
-VERSION?=$(shell cat VERSION 2>/dev/null || echo dev)
+# The version is VERSION at the repository root when HEAD is on that
+# version's tag with a clean tree, and TAG-COMMIT-dev otherwise, so a build
+# that is not the release says so (hotaru's rule). Packages stamp their own
+# version and are unaffected.
+TAG?=$(shell cat VERSION 2>/dev/null || echo 0.0.0)
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+DIRTY:=$(shell git status --porcelain 2>/dev/null | head -1)
+ATTAG:=$(shell git describe --exact-match --tags --match 'v$(TAG)' HEAD 2>/dev/null)
+VERSION:=$(if $(and $(ATTAG),$(if $(DIRTY),,x)),$(TAG),$(TAG)-$(COMMIT)-dev)
 LDFLAGS=-w -s -X $(MODULE)/internal/buildinfo.Version=$(VERSION) -X $(MODULE)/internal/buildinfo.Commit=$(COMMIT)
 
 # migrated_fynedo tells Fyne this front end has been through the fyne.Do
@@ -114,7 +121,7 @@ release: build-all ## Package dist/ into per-target tar.gz archives with SHA256S
 		case "$$bin" in *.tar.gz|*SHA256SUMS) continue;; esac; \
 		name=$$(basename "$$bin"); \
 		target=$${name#ototo-}; \
-		dir="$$stage/ototo-$(VERSION)-$$target"; \
+		dir="$$stage/ototo-$(TAG)-$$target"; \
 		mkdir -p "$$dir"; \
 		cp "$$bin" "$$dir/ototo"; \
 		cp README.md LICENSE "$$dir/"; \
