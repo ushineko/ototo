@@ -10,8 +10,8 @@ subprocess and no CGO. The graph rewiring that JamesDSP needs is a different
 protocol (PipeWire's own) and stays behind pw-link; see package graph, when it
 lands.
 
-This file holds the connection and the read-only queries the status operation
-needs. The rest of the surface arrives with the specs that use it.
+This file holds the connection and the read-only queries; write.go holds
+what a switch and a volume key change; watch.go holds the change subscription.
 */
 package audio
 
