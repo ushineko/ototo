@@ -5,8 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"fyne.io/fyne/v2"
-
 	"github.com/ushineko/ototo/internal/core"
 )
 
@@ -92,15 +90,12 @@ func (t *ticker) fire(u *ui) {
 	if err != nil {
 		u.events().Log(core.LevelWarn, "auto-switch: "+err.Error())
 	}
-	fyne.Do(func() {
-		// The window redraws only when someone can see it; hidden to the
-		// tray, the state is read again when it is shown.
-		if u.hiddenToTray || !u.sh.OnScreen() {
-			return
-		}
-		if res.Switched || u.statusOK {
-			u.statusOK = false
-			u.loadStatus()
-		}
-	})
+	// The window redraws only when someone can see it; hidden to the tray,
+	// the state is read again when it is shown. Quietly: a rebuild through
+	// the loader every five seconds would flash the list under the reader.
+	_ = res
+	if u.hiddenToTray || !u.sh.OnScreen() {
+		return
+	}
+	u.refreshQuietly()
 }

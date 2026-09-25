@@ -102,10 +102,9 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 		tw.Select(widget.TableCellID{Row: u.selected})
 	}
 
-	auto := widget.NewCheck("Switch automatically to the first available device", func(on bool) {
+	auto := check("Switch automatically to the first available device", res.Config.AutoSwitch, func(on bool) {
 		u.setAutoSwitch(on)
 	})
-	auto.SetChecked(res.Config.AutoSwitch)
 	u.sh.Gate(switchBtn, connectBtn, disconnectBtn, upBtn, downBtn)
 
 	return container.NewVBox(
@@ -140,8 +139,7 @@ func (u *ui) volumeCard() fyne.CanvasObject {
 		Format: func(v float64) string { return fmt.Sprintf("%.0f", v) },
 		Commit: func(v float64) { u.setVolume(int(v), nil) },
 	})
-	mute := widget.NewCheck("Mute", func(on bool) { u.setVolume(0, &on) })
-	mute.SetChecked(playing.Mute)
+	mute := check("Mute", playing.Mute, func(on bool) { u.setVolume(0, &on) })
 	return widgets.Card("Volume: "+playing.Name,
 		container.NewBorder(nil, nil, nil, mute, slider.Widget()))
 }

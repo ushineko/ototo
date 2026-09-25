@@ -36,6 +36,18 @@ func TestTheIndicatorShowsOnceForOneChange(t *testing.T) {
 	require.Equal(t, "muted", u.osd.meter.Caption())
 }
 
+// TestTheFirstSnapshotMakesTheCardVisible: a glance card is hidden until
+// its source answers; an indicator with a value is a source that answered.
+// Shipped once as a 6 px strip, because nobody had said so.
+func TestTheFirstSnapshotMakesTheCardVisible(t *testing.T) {
+	u := testUI(t)
+	u.osd = newIndicator(u.sh.App)
+	require.False(t, u.osd.card.Drawn())
+	u.osd.draw(volumeSnapshot{percent: 40})
+	require.True(t, u.osd.card.Drawn())
+	require.Greater(t, u.osd.win.Panel().Size().Height, float32(20))
+}
+
 // TestTheCaptionKeepsItsWidth: "5%" and "100%" must not resize the panel.
 func TestTheCaptionKeepsItsWidth(t *testing.T) {
 	u := testUI(t)

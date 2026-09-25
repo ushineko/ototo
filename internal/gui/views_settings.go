@@ -30,18 +30,18 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 	}
 	cfg := u.status.Config
 
-	move := widget.NewCheck("Move playing audio to the new output", func(on bool) {
+	// Each check takes its value first and its handler second: SetChecked
+	// fires OnChanged (quirk 2), and a handler that saved on build would
+	// rebuild the section, which would save again, without end.
+	move := check("Move playing audio to the new output", cfg.MoveStreams, func(on bool) {
 		u.setSwitches(core.SetSwitchesRequest{MoveStreams: &on})
 	})
-	move.SetChecked(cfg.MoveStreams)
-	notes := widget.NewCheck("Notify on an automatic switch", func(on bool) {
+	notes := check("Notify on an automatic switch", cfg.SwitchNotifications, func(on bool) {
 		u.setSwitches(core.SetSwitchesRequest{SwitchNotifications: &on})
 	})
-	notes.SetChecked(cfg.SwitchNotifications)
-	osd := widget.NewCheck("Show the volume indicator", func(on bool) {
+	osd := check("Show the volume indicator", cfg.OSDEnabled, func(on bool) {
 		u.setSwitches(core.SetSwitchesRequest{OSDEnabled: &on})
 	})
-	osd.SetChecked(cfg.OSDEnabled)
 
 	return container.NewVBox(
 		heading,
@@ -126,11 +126,10 @@ func (u *ui) loopbackCard() fyne.CanvasObject {
 	if lb.Mode == loopback.ModeService {
 		how = "Runs through the " + loopback.ServiceName + " user unit, which systemd remembers."
 	}
-	check := widget.NewCheck("Play the line-in through the current output", func(on bool) { u.setLoopback(on) })
-	check.SetChecked(lb.Active)
+	c := check("Play the line-in through the current output", lb.Active, func(on bool) { u.setLoopback(on) })
 	return widgets.Card("Line-in loopback",
 		widgets.FactRow("Source", lb.Source, fd.StatusInfo),
-		widgets.WithTip(check, how),
+		widgets.WithTip(c, how),
 	)
 }
 
@@ -168,14 +167,12 @@ on its own; the person turns it on.
 */
 func (u *ui) desktopCard() fyne.CanvasObject {
 	dt := u.desktop
-	autostart := widget.NewCheck("Start ototo at login", func(on bool) {
+	autostart := check("Start ototo at login", dt.Autostart, func(on bool) {
 		u.setDesktop(core.SetDesktopRequest{Autostart: &on})
 	})
-	autostart.SetChecked(dt.Autostart)
-	rule := widget.NewCheck("Install the indicator's window rule (KDE Plasma)", func(on bool) {
+	rule := check("Install the indicator's window rule (KDE Plasma)", dt.IndicatorRule, func(on bool) {
 		u.setDesktop(core.SetDesktopRequest{IndicatorRule: &on})
 	})
-	rule.SetChecked(dt.IndicatorRule)
 	rows := []fyne.CanvasObject{
 		widgets.WithTip(autostart, "Writes one desktop entry under your autostart directory, and removes it "+
 			"when turned off."),
@@ -209,4 +206,13 @@ func (u *ui) setSwitches(req core.SetSwitchesRequest) {
 		})
 		return err
 	})
+}
+
+// check is a check box that holds a value before it has a handler, so the
+// value it starts with is never mistaken for a change (quirk 2).
+func check(label string, on bool, changed func(bool)) *widget.Check {
+	c := widget.NewCheck(label, nil)
+	c.SetChecked(on)
+	c.OnChanged = changed
+	return c
 }
