@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Capture ototo-gui for the README, on KDE/Wayland.
+# Capture ototo for the README, on KDE/Wayland.
 #
 # Adapted from angou's tools/screenshot.sh (MIT, same author) by way of
 # nmsbonker's; the window-finding, focus-checking and aspect-ratio machinery is
@@ -30,7 +30,7 @@ set -euo pipefail
 
 CLASS="io.ushineko.ototo"
 DEMO=""
-BIN="${OTOTO_GUI:-$(command -v ototo-gui || echo ./ototo-gui)}"
+BIN="${OTOTO_GUI:-$(command -v ototo || echo ./ototo)}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
@@ -76,7 +76,7 @@ for tool in kdotool spectacle python3; do
     command -v "$tool" >/dev/null || { echo "$tool is not installed" >&2; exit 1; }
 done
 python3 -c "import PIL" 2>/dev/null || { echo "python3 Pillow is not installed" >&2; exit 1; }
-[ -x "$BIN" ] || { echo "ototo-gui not found (set OTOTO_GUI, or run make build-gui)" >&2; exit 1; }
+[ -x "$BIN" ] || { echo "ototo not found (set OTOTO_GUI, or run make build)" >&2; exit 1; }
 
 # DEMO is a fixed path rather than a mktemp one, and deliberately: it can appear
 # in a screenshot, and "/tmp/ototo-demo/..." reads as an example while
