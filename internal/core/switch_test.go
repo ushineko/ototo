@@ -256,6 +256,33 @@ func TestANotificationIsSentOncePerChangeOfHardware(t *testing.T) {
 	require.Equal(t, notify.IconFailure, w.notes.Sent[1].Icon)
 }
 
+// TestTheSwitchSoundPlaysOncePerChangeOfHardware: on, it plays after a
+// switch that changed the device, with the file the settings name; a tick
+// that lands on the same device plays nothing.
+func TestTheSwitchSoundPlaysOncePerChangeOfHardware(t *testing.T) {
+	w := newWorld(t, false)
+	w.cfg.SwitchSound = true
+	w.cfg.SwitchSoundFile = "~/chime.wav"
+	w.save(t)
+	played := make(chan string, 4)
+	w.sw.Player = func(_ string, cfg config.Config) error { played <- cfg.SwitchSoundFile; return nil }
+	for range 2 {
+		_, err := w.sw.Switch(context.Background(), SwitchRequest{Request: w.req(), Target: "headset"})
+		require.NoError(t, err)
+	}
+	select {
+	case f := <-played:
+		require.Equal(t, "~/chime.wav", f)
+	case <-time.After(time.Second):
+		t.Fatal("the switch sound did not play")
+	}
+	select {
+	case <-played:
+		t.Fatal("the sound played again for the same device")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 // TestTheMicrophoneFollowsTheLink: auto matches by shared property, a pinned
 // source is set as given, and "default" leaves the input alone.
 func TestTheMicrophoneFollowsTheLink(t *testing.T) {

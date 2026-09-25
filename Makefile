@@ -144,6 +144,13 @@ pkg-arch: ## Build the Arch Linux package from this checkout (needs makepkg)
 	cd packaging/arch && BUILDDIR="$$(mktemp -d)" makepkg -sf --noconfirm
 	@ls -l packaging/arch/*.pkg.tar.zst
 
+# The README's mermaid diagrams, rendered to the PNGs the window embeds. Needs
+# mmdc (mermaid-cli) on PATH; the test suite fails when a diagram and its
+# image disagree, so this runs before a diagram change is committed.
+.PHONY: generate
+generate: ## Render the README's mermaid diagrams (needs mmdc)
+	go generate ./...
+
 .PHONY: screenshots
 screenshots: build ## Refresh the README screenshots (KDE/Wayland; needs kdotool and spectacle)
 	OTOTO_GUI=./ototo ./tools/screenshot.sh --all

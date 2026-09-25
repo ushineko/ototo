@@ -42,13 +42,13 @@ usage: tools/screenshot.sh [--with-dialog] [--scheme NAME] --section NAME <outpu
   --scheme NAME   colour scheme for this run; not saved over the user's choice
   --with-dialog   a dialog is open: capture the desktop and crop, rather than grabbing
                   the active window (which would be the dialog on its own)
-  --all           refresh the README set into assets/, then print the alt-text reminder
+  --all           refresh docs/screenshots.md's set into assets/, then print the alt-text reminder
 
   assets/screenshot-outputs.png     the device list, the playing device and its volume
   assets/screenshot-microphone.png  which input follows each output
   assets/screenshot-settings.png    the switches and the desktop steps
 
-The alt text in README.md describes what is actually in each image. It is the only
+The alt text in docs/screenshots.md describes what is actually in each image. It is the only
 description a screen-reader user gets, and a stale one is worse than none -- check it
 still matches before committing a new capture.
 USAGE
@@ -273,7 +273,7 @@ if [ "$all" -eq 1 ]; then
         capture "$s" "${REPO_DIR}/assets/screenshot-${low}.png"
     done
     echo
-    echo "Now check the alt text in README.md still describes what is in each image,"
+    echo "Now check the alt text in docs/screenshots.md still describes what is in each image,"
     echo "and that no device name in any of them is one you would rather not publish."
     exit 0
 fi

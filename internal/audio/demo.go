@@ -72,6 +72,7 @@ type DemoHeadset struct {
 type Demo struct {
 	mu   sync.Mutex
 	file DemoFile
+	path string
 }
 
 // IsDemo reports whether a --server value names a demo file.
@@ -91,8 +92,12 @@ func LoadDemo(server string) (*Demo, error) {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return nil, fmt.Errorf("demo: parse %s: %w", path, err)
 	}
-	return &Demo{file: f}, nil
+	return &Demo{file: f, path: path}, nil
 }
+
+// ServerName is the demo server value, so a sound played beside a demo
+// switch is played to the demo, which plays nothing.
+func (d *Demo) ServerName() string { return DemoPrefix + d.path }
 
 // File is the file as loaded, for the probes.
 func (d *Demo) File() DemoFile {

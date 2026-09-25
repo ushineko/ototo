@@ -1,20 +1,48 @@
 package gui
 
 import (
+	"time"
+
 	"fyne.io/fyne/v2"
+	"github.com/ushineko/fynedesygn/markdown"
+	"github.com/ushineko/fynedesygn/mermaid"
 	"github.com/ushineko/fynedesygn/shell"
 	"github.com/ushineko/fynedesygn/widgets"
+
+	ototo "github.com/ushineko/ototo"
 )
 
 // projectURL is where the README lives. It is the one place this window sends a
 // user outside itself, and it opens in the desktop's browser.
 const projectURL = "https://github.com/ushineko/ototo"
 
-// buildAbout is what ototo is and what it will and will not do, in the
-// library's About shape. Limitations stay in the README; a shortened copy here
-// would only drift.
+/*
+buildAbout is what ototo is and what it will and will not do, in the
+library's About shape, with the README itself below the facts: the
+document, with its routing diagram, rather than a shortened copy that would
+drift. The pane follows the shell's scroller and is released when the
+section is replaced.
+*/
 func (u *ui) buildAbout() fyne.CanvasObject {
-	return shell.AboutSection(u.about()).Build(u.sh)
+	a := u.about()
+	a.Extra = func(s *shell.Shell) fyne.CanvasObject {
+		u.readme = markdown.New(ototo.README(), markdown.Options{
+			FS:           ototo.Docs(),
+			Diagrams:     mermaid.NewSet(ototo.Docs(), "diagrams"),
+			SettleResize: 120 * time.Millisecond,
+		})
+		u.readme.Follow(s.Scroller())
+		return u.readme
+	}
+	return shell.AboutSection(a).Build(u.sh)
+}
+
+// detachAbout releases the README pane's hold on the scroller.
+func (u *ui) detachAbout() {
+	if u.readme != nil {
+		u.readme.Detach()
+		u.readme = nil
+	}
 }
 
 // about describes this program for the About section.

@@ -13,6 +13,8 @@ import (
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/devices"
 	"github.com/ushineko/ototo/internal/loopback"
+
+	ototo "github.com/ushineko/ototo"
 )
 
 func loaded(u *ui) {
@@ -87,7 +89,7 @@ func TestASettingsSwitchWritesOneKey(t *testing.T) {
 	loaded(u)
 	body := u.buildSettings()
 	checks := fynetest.All[*widget.Check](body)
-	require.Len(t, checks, 5, "two settings switches and three desktop steps")
+	require.Len(t, checks, 6, "three settings switches and three desktop steps")
 	require.True(t, checks[0].Checked && checks[1].Checked)
 	selects := fynetest.All[*widget.Select](body)
 	require.Len(t, selects, 2, "the switch choice and the indicator text size")
@@ -195,6 +197,44 @@ func TestTwoLineInputsOfferASelector(t *testing.T) {
 	cfg, _, err := config.Load("")
 	require.NoError(t, err)
 	require.Equal(t, "in-b", cfg.LoopbackSource)
+}
+
+// TestAboutHoldsTheReadmeAndLetsItGo: the document is in the section, with
+// its diagram, and the pane is released when the section is replaced.
+func TestAboutHoldsTheReadmeAndLetsItGo(t *testing.T) {
+	u := testUI(t)
+	loaded(u)
+	body := u.buildAbout()
+	require.NotNil(t, body)
+	require.NotNil(t, u.readme, "About built without the README pane")
+	require.Greater(t, u.readme.Blocks(), 10)
+	u.detachAbout()
+	require.Nil(t, u.readme)
+
+	// Pictures of the window do not belong in the window, and an image wider
+	// than the pane draws over what follows it (fynedesygn #69): the README
+	// links to its screenshots on GitHub instead of carrying them.
+	require.NotContains(t, ototo.README(), "](assets/screenshot-")
+	require.Contains(t, ototo.README(), "https://github.com/ushineko/ototo/blob/main/docs/screenshots.md")
+	require.Contains(t, ototo.README(), "```mermaid")
+}
+
+// TestTheSoundCardWritesTheFileOnEnter: the check is the setting, and the
+// file is applied on Enter, empty meaning the chime.
+func TestTheSoundCardWritesTheFileOnEnter(t *testing.T) {
+	u := testUI(t)
+	loaded(u)
+	card := u.soundCard()
+	entry := fynetest.FindEntry(card)
+	entry.OnSubmitted("~/sounds/switch.wav")
+	cfg, _, err := config.Load("")
+	require.NoError(t, err)
+	require.Equal(t, "~/sounds/switch.wav", cfg.SwitchSoundFile)
+	require.False(t, cfg.SwitchSound)
+	fynetest.FindCheck(card).SetChecked(true)
+	cfg, _, err = config.Load("")
+	require.NoError(t, err)
+	require.True(t, cfg.SwitchSound)
 }
 
 // TestTheVolumeCardShowsThePlayingDevice: the slider carries the level of

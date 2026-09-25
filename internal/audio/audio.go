@@ -76,8 +76,9 @@ func (d Device) Connected() bool {
 
 // Client is one connection to the server.
 type Client struct {
-	c    *proto.Client
-	conn net.Conn
+	c      *proto.Client
+	conn   net.Conn
+	server string
 }
 
 // Connect opens the server named by server, or the default one when it is
@@ -95,8 +96,12 @@ func Connect(server string) (*Client, error) {
 		_ = conn.Close()
 		return nil, fmt.Errorf("introduce the client to the sound server: %w", err)
 	}
-	return &Client{c: c, conn: conn}, nil
+	return &Client{c: c, conn: conn, server: server}, nil
 }
+
+// ServerName is the server this client was connected with, as given to
+// Connect; "" is the default.
+func (c *Client) ServerName() string { return c.server }
 
 // Close ends the connection.
 func (c *Client) Close() error {
