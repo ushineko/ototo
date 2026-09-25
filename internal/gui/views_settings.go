@@ -145,6 +145,7 @@ func (u *ui) setLoopback(on bool) {
 				u.status.Config.LoopbackEnabled = on
 			}
 		})
+		u.refreshQuietly()
 		return err
 	})
 }
