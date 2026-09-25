@@ -2,6 +2,7 @@ package gui
 
 import (
 	"testing"
+	"time"
 
 	"fyne.io/fyne/v2/canvas"
 	"github.com/stretchr/testify/require"
@@ -38,6 +39,20 @@ func TestTheIndicatorShowsOnceForOneChange(t *testing.T) {
 	u.osd.show(volumeSnapshot{percent: 50, muted: true}, true)
 	require.True(t, u.osd.tr.Shown())
 	require.Equal(t, "muted", u.osd.value.Text)
+}
+
+// TestASwitchHoldsTheIndicatorLonger: a show with the switch's hold is
+// still up when a key press's hold would have ended.
+func TestASwitchHoldsTheIndicatorLonger(t *testing.T) {
+	u := testUI(t)
+	u.osd = newIndicator(u.sh.App)
+	u.osd.tr.OnShow = nil
+	defer u.osd.tr.Hide()
+
+	u.osd.showFor(volumeSnapshot{percent: 45, device: "Headset"}, true, switchHold)
+	require.True(t, u.osd.tr.Shown())
+	time.Sleep(indicatorHold + 200*time.Millisecond)
+	require.True(t, u.osd.tr.Shown(), "the switch's show ended at the key press's hold")
 }
 
 // TestASwitchGoesToTheIndicatorOnlyWhenAsked: with the setting off the

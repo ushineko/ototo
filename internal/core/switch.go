@@ -80,8 +80,9 @@ type Switcher struct {
 	Notifier notify.Notifier
 	// Loopback is the line-in loopback (R9.3); nil uses the real commands.
 	Loopback *loopback.Loopback
-	// Player plays the switch sound; nil plays over the sound server.
-	Player func(server string, cfg config.Config) error
+	// Player plays the switch sound into sink; nil plays over the sound
+	// server.
+	Player func(server, sink string, cfg config.Config) error
 
 	dial func(server string) (server, error)
 
@@ -400,14 +401,19 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 
 	// One notification per change of hardware, so the 5 s tick that lands
 	// on the same device says nothing (R5.2). The sound follows the same
-	// rule, and plays after the switch so it comes out of the new device.
+	// rule, and plays once the route is confirmed, into the device's own
+	// sink, so it comes out of the new device and not out of a sink that
+	// is still being rewired.
 	s.mu.Lock()
 	changed := dev.Sink != s.lastPhysical
 	s.lastPhysical = dev.Sink
 	s.mu.Unlock()
 	if changed && cfg.SwitchSound {
+		s.settleRoute(ctx, srv, dev.Sink, res.ViaJamesDSP, ev)
+		server := req(srv)
 		go func() {
-			if err := s.play(req(srv), cfg); err != nil {
+			time.Sleep(soundLead)
+			if err := s.play(server, dev.Sink, cfg); err != nil {
 				ev.logf(LevelWarn, "switch sound: %v", err)
 			}
 		}()
@@ -427,16 +433,76 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 	return res, nil
 }
 
-// play plays the switch sound through Player, or over the sound server.
-func (s *Switcher) play(server string, cfg config.Config) error {
-	if s.Player != nil {
-		return s.Player(server, cfg)
+/*
+The switch sound and the switch it follows. A stream opened the moment the
+default sink changed lands in a sink that is still being rewired: through
+JamesDSP the filter's output is relinked by pw-link, which the graph applies
+after the command returns, and a clip played into the filter before the
+link is up plays into nothing. So the sound is played into the device's own
+sink, which needs no link, and only once the route is confirmed: the server
+reports the default this switch set and, through JamesDSP, the graph
+reports the filter linked to the device. The confirmation is polled every
+routePoll for up to routeSettle; a route that never confirms plays anyway,
+so a wrong reading costs a delay and not the sound. soundLead is the moment
+a sink that was just resumed, a Bluetooth one above all, needs before its
+first samples are heard; a stream the server refused is tried once more
+after soundRetry.
+*/
+const (
+	routeSettle = 1500 * time.Millisecond
+	routePoll   = 50 * time.Millisecond
+	soundLead   = 100 * time.Millisecond
+	soundRetry  = 300 * time.Millisecond
+)
+
+// settleRoute waits for the route to sink to be confirmed, as described
+// above, and says whether it was.
+func (s *Switcher) settleRoute(ctx context.Context, srv server, sink string, viaJDSP bool, ev Events) bool {
+	want := sink
+	if viaJDSP {
+		want = devices.JamesDSPSink
 	}
-	return PlaySwitchSound(server, cfg)
+	deadline := time.Now().Add(routeSettle)
+	for {
+		ok := false
+		if info, err := srv.Server(); err == nil && info.DefaultSink == want {
+			ok = true
+			if viaJDSP {
+				target, err := s.graph().Target(ctx)
+				ok = err == nil && target == sink
+			}
+		}
+		if ok {
+			return true
+		}
+		if ctx.Err() != nil || time.Now().After(deadline) {
+			ev.logf(LevelWarn, "the route to %s did not confirm within %s; playing the switch sound anyway", sink, routeSettle)
+			return false
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(routePoll):
+		}
+	}
 }
 
-// PlaySwitchSound plays what the settings name: the WAV file, or the chime.
-func PlaySwitchSound(server string, cfg config.Config) error {
+// play plays the switch sound through Player, or over the sound server,
+// and once more after soundRetry when the first try failed.
+func (s *Switcher) play(server, sink string, cfg config.Config) error {
+	play := PlaySwitchSound
+	if s.Player != nil {
+		play = s.Player
+	}
+	if err := play(server, sink, cfg); err == nil {
+		return nil
+	}
+	time.Sleep(soundRetry)
+	return play(server, sink, cfg)
+}
+
+// PlaySwitchSound plays what the settings name, the WAV file or the chime,
+// into sink, or the default output when sink is "".
+func PlaySwitchSound(server, sink string, cfg config.Config) error {
 	sound := audio.Chime()
 	if cfg.SwitchSoundFile != "" {
 		var err error
@@ -444,7 +510,7 @@ func PlaySwitchSound(server string, cfg config.Config) error {
 			return err
 		}
 	}
-	return audio.Play(server, sound)
+	return audio.Play(server, sink, sound)
 }
 
 // req names the server a connection was made to, for a sound played beside

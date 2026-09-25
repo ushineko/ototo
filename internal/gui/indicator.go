@@ -24,9 +24,11 @@ import (
 
 // The indicator's timing, as the original's: shown for 1.5 s after the last
 // change, and a server event is read 80 ms after it arrives so a burst of
-// changes is one read.
+// changes is one read. A switch of output is worth a longer look than a step
+// of the volume, and holds the indicator for switchHold.
 const (
 	indicatorHold     = glance.DefaultHold
+	switchHold        = 3 * time.Second
 	indicatorDebounce = 80 * time.Millisecond
 	indicatorWidth    = 380
 )
@@ -184,14 +186,17 @@ func (in *indicator) draw(v volumeSnapshot) {
 // show draws the snapshot and shows the window when it differs from the
 // last one, on the UI thread. enabled false records the state and shows
 // nothing, as the original did with the indicator turned off.
-func (in *indicator) show(v volumeSnapshot, enabled bool) {
+func (in *indicator) show(v volumeSnapshot, enabled bool) { in.showFor(v, enabled, 0) }
+
+// showFor is show with a hold of its own; zero is the indicator's usual.
+func (in *indicator) showFor(v volumeSnapshot, enabled bool, hold time.Duration) {
 	same := in.shown && v == in.last
 	in.last, in.shown = v, true
 	if same || !enabled {
 		return
 	}
 	in.draw(v)
-	in.tr.Show()
+	in.tr.ShowFor(hold)
 }
 
 /*
@@ -219,7 +224,10 @@ func (u *ui) watchVolume(ctx context.Context) {
 }
 
 // volumeChanged reads the playing sink's volume and shows the indicator.
-func (u *ui) volumeChanged(ctx context.Context) {
+func (u *ui) volumeChanged(ctx context.Context) { u.volumeChangedFor(ctx, 0) }
+
+// volumeChangedFor is volumeChanged with a hold of its own for the show.
+func (u *ui) volumeChangedFor(ctx context.Context, hold time.Duration) {
 	ctx, cancel := context.WithTimeout(ctx, TickInterval)
 	defer cancel()
 	res, err := u.sw.Volume(ctx, core.VolumeRequest{Request: u.request()})
@@ -228,18 +236,21 @@ func (u *ui) volumeChanged(ctx context.Context) {
 		return
 	}
 	u.events().Log(core.LevelDebug, fmt.Sprintf("volume read: %s %d%% muted=%v", res.Sink, res.Percent, res.Muted))
-	u.showVolume(res)
+	u.showVolumeFor(res, hold)
 }
 
 // showVolume hops to the UI thread with a volume result.
-func (u *ui) showVolume(res core.VolumeResult) {
+func (u *ui) showVolume(res core.VolumeResult) { u.showVolumeFor(res, 0) }
+
+// showVolumeFor is showVolume with a hold of its own for the show.
+func (u *ui) showVolumeFor(res core.VolumeResult, hold time.Duration) {
 	fyne.Do(func() {
 		if u.osd == nil {
 			return
 		}
 		u.events().Log(core.LevelDebug, fmt.Sprintf("indicator: enabled=%v", u.osdEnabled()))
 		u.showTextSize()
-		u.osd.show(volumeSnapshot{percent: res.Percent, muted: res.Muted, device: u.deviceName(res.Sink)}, u.osdEnabled())
+		u.osd.showFor(volumeSnapshot{percent: res.Percent, muted: res.Muted, device: u.deviceName(res.Sink)}, u.osdEnabled(), hold)
 	})
 }
 
@@ -275,11 +286,11 @@ type routingNotifier struct {
 func (r routingNotifier) Send(n notify.Notification) (uint32, error) {
 	if n.Kind == notify.KindSwitched && r.u.switchInOSD() {
 		// The panel with the new device's name and volume: the same show a
-		// key press gets, so nothing collides with it. The list is read
-		// again first so the name is the new device's.
+		// key press gets, so nothing collides with it, held for longer. The
+		// list is read again first so the name is the new device's.
 		go func() {
 			r.u.refreshQuietly()
-			r.u.volumeChanged(context.Background())
+			r.u.volumeChangedFor(context.Background(), switchHold)
 		}()
 		return 0, nil
 	}

@@ -84,6 +84,11 @@ type fakeGraph struct {
 	present bool   // JamesDSP outputs exist
 	target  string // the sink they play into; "" floating
 	calls   []string
+	// A link is reported lagAfterLink listings late, as PipeWire applies
+	// it after pw-link returns; pending is the sink it will report.
+	lagAfterLink int
+	lag          int
+	pending      string
 }
 
 func (g *fakeGraph) run(_ context.Context, args ...string) (string, error) {
@@ -98,11 +103,22 @@ func (g *fakeGraph) run(_ context.Context, args ...string) (string, error) {
 		return speakers + ":playback_FL\n" + speakers + ":playback_FR\n" +
 			headsetSink + ":playback_FL\n" + headsetSink + ":playback_FR\n", nil
 	case "-l":
+		if g.pending != "" {
+			if g.lag > 0 {
+				g.lag--
+			} else {
+				g.target, g.pending = g.pending, ""
+			}
+		}
 		if g.target == "" {
 			return "jdsp_@PwJamesDspPlugin_JamesDsp:output_FL\njdsp_@PwJamesDspPlugin_JamesDsp:output_FR\n", nil
 		}
 		return "jdsp_@PwJamesDspPlugin_JamesDsp:output_FL\n  |-> " + g.target + ":playback_FL\n" +
 			"jdsp_@PwJamesDspPlugin_JamesDsp:output_FR\n  |-> " + g.target + ":playback_FR\n", nil
+	default:
+		if len(args) == 2 { // a link: out in
+			g.pending, g.lag = strings.SplitN(args[1], ":", 2)[0], g.lagAfterLink
+		}
 	}
 	return "", nil
 }
@@ -265,7 +281,7 @@ func TestTheSwitchSoundPlaysOncePerChangeOfHardware(t *testing.T) {
 	w.cfg.SwitchSoundFile = "~/chime.wav"
 	w.save(t)
 	played := make(chan string, 4)
-	w.sw.Player = func(_ string, cfg config.Config) error { played <- cfg.SwitchSoundFile; return nil }
+	w.sw.Player = func(_, _ string, cfg config.Config) error { played <- cfg.SwitchSoundFile; return nil }
 	for range 2 {
 		_, err := w.sw.Switch(context.Background(), SwitchRequest{Request: w.req(), Target: "headset"})
 		require.NoError(t, err)
@@ -280,6 +296,61 @@ func TestTheSwitchSoundPlaysOncePerChangeOfHardware(t *testing.T) {
 	case <-played:
 		t.Fatal("the sound played again for the same device")
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// TestTheSwitchSoundWaitsForTheRouteAndPlaysIntoTheDevice: through
+// JamesDSP the sound is played into the device's own sink, not the
+// filter's, and only once the graph reports the filter linked to it; the
+// graph here reports the link three listings late.
+func TestTheSwitchSoundWaitsForTheRouteAndPlaysIntoTheDevice(t *testing.T) {
+	w := newWorld(t, true)
+	w.cfg.SwitchSound = true
+	w.save(t)
+	w.g.lagAfterLink = 3
+	type play struct{ sink, target string }
+	played := make(chan play, 1)
+	w.sw.Player = func(_, sink string, _ config.Config) error {
+		played <- play{sink: sink, target: w.g.target}
+		return nil
+	}
+	res, err := w.sw.Switch(context.Background(), SwitchRequest{Request: w.req(), Target: "headset"})
+	require.NoError(t, err)
+	require.True(t, res.ViaJamesDSP)
+	select {
+	case p := <-played:
+		require.Equal(t, headsetSink, p.sink, "the sound was not played into the device's own sink")
+		require.Equal(t, headsetSink, p.target, "the sound played before the graph reported the route")
+	case <-time.After(3 * time.Second):
+		t.Fatal("the switch sound did not play")
+	}
+}
+
+// TestTheSwitchSoundIsTriedOnceMore: a stream the server refused is tried
+// again after a moment, and a second refusal is the failure reported.
+func TestTheSwitchSoundIsTriedOnceMore(t *testing.T) {
+	w := newWorld(t, false)
+	w.cfg.SwitchSound = true
+	w.save(t)
+	tries := make(chan int, 4)
+	n := 0
+	w.sw.Player = func(_, _ string, _ config.Config) error {
+		n++
+		tries <- n
+		if n == 1 {
+			return errors.New("refused")
+		}
+		return nil
+	}
+	_, err := w.sw.Switch(context.Background(), SwitchRequest{Request: w.req(), Target: "headset"})
+	require.NoError(t, err)
+	for want := 1; want <= 2; want++ {
+		select {
+		case got := <-tries:
+			require.Equal(t, want, got)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("try %d did not happen", want)
+		}
 	}
 }
 

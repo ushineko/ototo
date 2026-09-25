@@ -115,12 +115,12 @@ func (s Sound) Duration() time.Duration {
 }
 
 /*
-Play plays the clip to the default output and returns when it has drained.
-server is as for Connect; a demo server plays nothing and returns at once.
-The stream is named for the desktop's mixer, so a person who sees it there
-knows what it is.
+Play plays the clip into sink, or the default output when sink is "", and
+returns when it has drained. server is as for Connect; a demo server plays
+nothing and returns at once. The stream is named for the desktop's mixer,
+so a person who sees it there knows what it is.
 */
-func Play(server string, s Sound) error {
+func Play(server, sink string, s Sound) error {
 	if IsDemo(server) || len(s.Samples) == 0 {
 		return nil
 	}
@@ -150,6 +150,13 @@ func Play(server string, s Sound) error {
 	}
 	if s.Channels == 2 {
 		popts = append(popts, pulse.PlaybackStereo)
+	}
+	if sink != "" {
+		target, err := c.SinkByID(sink)
+		if err != nil {
+			return fmt.Errorf("find the sink %s: %w", sink, err)
+		}
+		popts = append(popts, pulse.PlaybackSink(target))
 	}
 	stream, err := c.NewPlayback(reader, popts...)
 	if err != nil {

@@ -7,7 +7,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/jfreymuth/pulse v0.1.3
 	github.com/stretchr/testify v1.12.1
-	github.com/ushineko/fynedesygn v0.1.44
+	github.com/ushineko/fynedesygn v0.1.45-0.20260925215515-6a56c98227ca
 )
 
 require (

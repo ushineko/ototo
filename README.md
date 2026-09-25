@@ -228,6 +228,14 @@ window does not carry pictures of the window.
 
 ## Changelog
 
+### Unreleased
+
+- The switch sound waits for the route: it plays once the server reports
+  the new default and, through JamesDSP, once the graph reports the filter
+  linked to the new device, and it plays into the device's own sink, so it
+  is no longer lost in a sink that is still being rewired.
+- A switch holds the indicator for 3 s, twice a key press's 1.5 s.
+
 ### 0.1.2
 
 - **A sound on a switch.** "Play a sound when the output switches" in

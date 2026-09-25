@@ -65,6 +65,6 @@ func TestAPCMWAVIsRead(t *testing.T) {
 // one check that the stream opens and drains. It is audible.
 func TestPlayOnTheLiveServer(t *testing.T) {
 	skipWithoutServer(t)
-	require.NoError(t, Play("", Chime()))
-	require.NoError(t, Play(DemoPrefix+"nothing", Chime()), "a demo server must play nothing and succeed")
+	require.NoError(t, Play("", "", Chime()))
+	require.NoError(t, Play(DemoPrefix+"nothing", "", Chime()), "a demo server must play nothing and succeed")
 }
