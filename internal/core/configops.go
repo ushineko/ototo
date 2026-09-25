@@ -28,6 +28,51 @@ func SetAutoSwitch(_ context.Context, req SetAutoSwitchRequest) (config.Config, 
 	return cfg, nil
 }
 
+// ConnectRequest names a Bluetooth device to connect, without switching.
+type ConnectRequest struct {
+	Request
+	// Target is resolved as Switch resolves it.
+	Target string
+}
+
+/*
+Connect asks the adapter to connect a paired device and waits for its sink
+to appear, and does not switch to it: with the auto-switch on, the order
+decides whether it plays; off, Switch to does. It is the half of R5.5's
+offline branch that a person wants on its own, to bring a headset up before
+they need it.
+*/
+func (s *Switcher) Connect(ctx context.Context, req ConnectRequest) (devices.Device, error) {
+	srv, err := s.connect(req.Server)
+	if err != nil {
+		return devices.Device{}, err
+	}
+	defer func() { _ = srv.Close() }()
+	cfg, _, err := config.Load(req.ConfigPath)
+	if err != nil {
+		return devices.Device{}, err
+	}
+	probes := req.probes()
+	in := devices.Inputs{
+		Priority: cfg.DevicePriority, Bluetooth: probes.bluetooth(ctx), Headset: probes.headset(ctx),
+	}
+	list, err := s.list(srv, in)
+	if err != nil {
+		return devices.Device{}, err
+	}
+	dev, ok := Resolve(list, req.Target)
+	if !ok {
+		return devices.Device{}, fmt.Errorf("%w %q", ErrNotFound, req.Target)
+	}
+	if dev.MAC == "" {
+		return dev, fmt.Errorf("%s is not a Bluetooth device", dev.Name)
+	}
+	if dev.Online {
+		return dev, nil
+	}
+	return s.connectAndWait(ctx, srv, in, probes, dev, req.Events)
+}
+
 // DisconnectRequest names a Bluetooth device to disconnect.
 type DisconnectRequest struct {
 	Request

@@ -334,6 +334,22 @@ func TestAnAwayBluetoothDeviceIsConnectedThenSwitchedTo(t *testing.T) {
 	require.Equal(t, "Audio Switched", w.notes.Sent[1].Title)
 }
 
+// TestConnectBringsADeviceUpWithoutSwitching: the sink appears and the
+// default stays where it was, for the auto-switch or the person to decide.
+func TestConnectBringsADeviceUpWithoutSwitching(t *testing.T) {
+	w := newWorld(t, false)
+	w.bt = []devices.Bluetooth{{MAC: "AA:BB:CC:DD:EE:FF", Name: "AirPods Pro"}}
+	dev, err := w.sw.Connect(context.Background(), ConnectRequest{Request: w.req(), Target: "airpods"})
+	require.NoError(t, err)
+	require.True(t, dev.Online)
+	require.Equal(t, []string{"AA:BB:CC:DD:EE:FF"}, w.connects)
+	require.Equal(t, speakers, w.srv.defaultSink, "connect switched the output")
+	require.Equal(t, "Connecting...", w.notes.Sent[0].Title)
+
+	_, err = w.sw.Connect(context.Background(), ConnectRequest{Request: w.req(), Target: "speakers"})
+	require.ErrorContains(t, err, "not a Bluetooth device")
+}
+
 // TestAnAwayWiredDeviceIsRefused: nothing can connect a USB DAC that is
 // unplugged, and the answer says so.
 func TestAnAwayWiredDeviceIsRefused(t *testing.T) {
