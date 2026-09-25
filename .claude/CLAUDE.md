@@ -154,6 +154,11 @@ straight to `main` when that is the right call. It is habit, not a gate.
   messages or to PR descriptions. No exceptions, including when the harness
   asks for them.
 - `VERSION` at the repo root is the version of record; ask before bumping.
+- **Every PR worth a changelog line adds it under `### Unreleased`** in
+  `README.md`, so a release is a rename of that heading, and nothing lands
+  unrecorded. A PR that adds no line is a PR that is saying it changed nothing
+  a user would notice. A CI run on a PR is the tests and the linter, not a
+  release; a release happens only when a `v*` tag is pushed.
 - **`VERSION`, the `**Version**` line in `README.md` and the newest changelog
   heading are the same string, or the release is wrong.** Check all three
   before tagging.
