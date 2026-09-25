@@ -200,7 +200,9 @@ type SetSwitchesRequest struct {
 	SwitchInOSD         *bool
 	MoveStreams         *bool
 	// LoopbackSource picks the line-in source; "" means the first found.
-	LoopbackSource *string
+	LoopbackSource  *string
+	SwitchSound     *bool
+	SwitchSoundFile *string
 }
 
 // OSD text size bounds, in points.
@@ -241,6 +243,12 @@ func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, erro
 	}
 	if req.LoopbackSource != nil {
 		cfg.LoopbackSource = *req.LoopbackSource
+	}
+	if req.SwitchSound != nil {
+		cfg.SwitchSound = *req.SwitchSound
+	}
+	if req.SwitchSoundFile != nil {
+		cfg.SwitchSoundFile = *req.SwitchSoundFile
 	}
 	if err := config.Save(path, cfg); err != nil {
 		return cfg, err

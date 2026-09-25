@@ -26,6 +26,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
 	fd "github.com/ushineko/fynedesygn"
+	"github.com/ushineko/fynedesygn/markdown"
 	"github.com/ushineko/fynedesygn/shell"
 	fdtheme "github.com/ushineko/fynedesygn/theme"
 	"github.com/ushineko/fynedesygn/widgets"
@@ -84,6 +85,8 @@ type ui struct {
 	// volume changed: rebuilding the section for a volume step made the
 	// slider jump under the pointer.
 	live liveOutputs
+	// readme is the document pane in About while it is on screen.
+	readme *markdown.Pane
 }
 
 // sectionTitles is the navigation in order.
@@ -102,6 +105,8 @@ type sectionEntry struct {
 	icon   func() fyne.Resource
 	build  func(*ui) fyne.CanvasObject
 	arrive func(*ui)
+	// detach releases the live widgets a section holds when it is replaced.
+	detach func(*ui)
 }
 
 // sectionBuilders is what each section is made of. A function rather than a
@@ -114,11 +119,11 @@ func sectionBuilders() map[string]sectionEntry {
 		// machine, so Outputs reads it again on arrival: the hook and not the
 		// builder, or the end of the read would rebuild the section that
 		// started it, which would read again.
-		"Outputs":    {theme.VolumeUpIcon, (*ui).buildOutputs, (*ui).loadStatus},
-		"Microphone": {theme.MediaRecordIcon, (*ui).buildMicrophone, nil},
-		"Settings":   {theme.SettingsIcon, (*ui).buildSettings, nil},
-		"Appearance": {theme.ColorPaletteIcon, (*ui).buildAppearance, nil},
-		"About":      {theme.HelpIcon, (*ui).buildAbout, nil},
+		"Outputs":    {theme.VolumeUpIcon, (*ui).buildOutputs, (*ui).loadStatus, nil},
+		"Microphone": {theme.MediaRecordIcon, (*ui).buildMicrophone, nil, nil},
+		"Settings":   {theme.SettingsIcon, (*ui).buildSettings, nil, nil},
+		"Appearance": {theme.ColorPaletteIcon, (*ui).buildAppearance, nil, nil},
+		"About":      {theme.HelpIcon, (*ui).buildAbout, nil, (*ui).detachAbout},
 	}
 }
 
@@ -135,6 +140,9 @@ func sections(u *ui) []shell.Section {
 		sec := shell.NewSection(title, b.icon, func(*shell.Shell) fyne.CanvasObject { return b.build(u) })
 		if b.arrive != nil {
 			sec.OnArrive(func() { b.arrive(u) })
+		}
+		if b.detach != nil {
+			sec.OnDetach(func() { b.detach(u) })
 		}
 		out = append(out, sec)
 	}

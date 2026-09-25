@@ -15,16 +15,8 @@ replaces it. The behaviour is that program's; the spec is
 
 **Version**: 0.1.1
 
-![The Outputs section. A Sound server card lists the server, the default
-output and input, and three inputs. A Volume card for "Example Audio DAC -
-Headphones" shows a slider at 40 and a Mute check. Buttons: Switch to,
-Connect, Disconnect, Move up, Move down; a checked "Switch automatically to
-the first available device". A table of six devices in priority order:
-"Example Earbuds" away, "Example Arctis Nova Headset [87%]" ready at 55%,
-"Example Audio DAC - Headphones" playing at 40% in green, "HDMI Audio" ready
-at 100%, "Built-in Audio - Line Out" disconnected in amber, "Living room
-speaker" away. The status bar names the server and the playing
-output.](assets/screenshot-outputs.png)
+[Screenshots](https://github.com/ushineko/ototo/blob/main/docs/screenshots.md)
+of the three sections, over invented devices.
 
 ## Table of Contents
 
@@ -58,9 +50,49 @@ output.](assets/screenshot-outputs.png)
   volume keys over for it and gives them back; the original left that step
   to the user.
 - **Tray.** Close hides to the tray; the switching continues.
+- **A sound on a switch**, if you want one: a short built-in chime, or a WAV
+  file of your own, played on the device that just became the output.
+- **The README, in the window.** About holds this document, with the routing
+  diagram; the screenshots are a page of their own, linked above.
 - **The desktop, on request.** Autostart, the indicator's window rule and the
   volume keys are switches in Settings. Nothing is written to the desktop
   until you turn one on, and each one says how it is undone.
+
+## How it routes audio
+
+Applications play into the default output. Without JamesDSP, that is the
+device you chose. With JamesDSP running, the default stays on its sink and
+`ototo` moves the filter's output to the device you chose, so the effects
+apply to everything and survive every switch.
+
+```mermaid
+flowchart LR
+    subgraph apps [Applications]
+        A1[Browser]
+        A2[Player]
+        A3[Game]
+    end
+    subgraph server [Sound server]
+        D[jamesdsp_sink<br/>the default output]
+        F[JamesDSP filter]
+        H1[Headphones]
+        H2[Speakers]
+        H3[Headset]
+    end
+    A1 --> D
+    A2 --> D
+    A3 --> D
+    D --> F
+    F -. "linked by ototo" .-> H1
+    F -. "or" .-> H2
+    F -. "or" .-> H3
+    O((ototo)) -- "sets the default,<br/>moves the links" --> D
+    O -- "connects, follows<br/>with the microphone" --> H3
+```
+
+The choice comes from your order: every five seconds the highest device in
+it that can play becomes the output, and a Bluetooth device is connected
+first. Volume keys act on the device that is playing, behind the filter.
 
 ## Requirements
 
@@ -143,18 +175,6 @@ point it at another settings file or another sound server; `--server
 demo:<file>` is an in-memory server over the devices the file describes,
 which is what the screenshots are taken over.
 
-![The Microphone section. One row per output, each with a selector: every row
-reads "Match automatically" except "HDMI Audio - HDMI / DisplayPort", which
-reads "Example Desk Mic". A note above explains that automatic matching
-picks the input on the same device as the output.](assets/screenshot-microphone.png)
-
-![The Settings section. Switching: "Move playing audio to the new output"
-checked, and "On an automatic switch" set to "Show it in the indicator".
-Volume indicator: shown, text size 32, font "the window's font" with Choose
-and reset buttons. Headset: battery 87%, idle minutes 0. Line-in loopback:
-on, source "Example DAC Line In". Desktop: "Start ototo at login" and "Use
-the volume keys for ototo (KDE Plasma)", both off.](assets/screenshot-settings.png)
-
 ## Where things live
 
 | Path | What |
@@ -197,14 +217,27 @@ specs/                the design of record
 ```
 make test         # headless; the audio test skips where no sound server listens
 make lint         # golangci-lint, pinned and checksum-verified on first run
-make screenshots  # refresh the README images (KDE/Wayland; kdotool and spectacle)
+make screenshots  # refresh docs/screenshots.md's images (KDE/Wayland; kdotool and spectacle)
 ```
 
 The screenshots are taken over a demo sound server of invented devices, in a
 throwaway home and runtime directory, so nothing of the machine that takes
-them appears in the repository.
+them appears in the repository. They live on a page of their own,
+[docs/screenshots.md](docs/screenshots.md), so the README embedded in the
+window does not carry pictures of the window.
 
 ## Changelog
+
+### Unreleased
+
+- **A sound on a switch.** "Play a sound when the output switches" in
+  Settings: a short built-in chime, or a WAV file of your own, played on the
+  device that just became the output, over the sound server and without a
+  subprocess.
+- **About holds the README**, with a diagram of how the audio is routed,
+  rendered at development time and embedded. The screenshots are a page of
+  their own, `docs/screenshots.md`, linked from the README by its GitHub
+  address, so the copy in the window links there too.
 
 ### 0.1.1
 

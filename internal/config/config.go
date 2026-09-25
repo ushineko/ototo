@@ -53,6 +53,10 @@ type Config struct {
 	// SwitchInOSD shows a switch in the volume indicator instead of a
 	// desktop notification.
 	SwitchInOSD bool `json:"switch_in_osd"`
+	// SwitchSound plays a sound on the new output when the output switches:
+	// the built-in chime, or the WAV file SwitchSoundFile names.
+	SwitchSound     bool   `json:"switch_sound"`
+	SwitchSoundFile string `json:"switch_sound_file"`
 	// LoopbackEnabled plays the line-in source through the current output.
 	LoopbackEnabled bool `json:"loopback_enabled"`
 	// LoopbackSource is the line-in source to play, for a machine with more

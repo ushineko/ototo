@@ -7,6 +7,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	fd "github.com/ushineko/fynedesygn"
 	"github.com/ushineko/fynedesygn/dialogs"
@@ -57,6 +58,7 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 			u.osdSizeRow(),
 			u.osdFontRow(),
 		),
+		u.soundCard(),
 		u.headsetCard(),
 		u.loopbackCard(),
 		u.desktopCard(),
@@ -182,6 +184,39 @@ func (u *ui) osdSizeRow() fyne.CanvasObject {
 	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Indicator text size"), nil,
 		widgets.FixedWidth(size, forms.NumericWidth)),
 		"Points. The next change of volume shows it.")
+}
+
+/*
+soundCard is the sound on a switch: the built-in chime, or a WAV file of
+the person's own, and a button that plays it now so the choice can be
+heard before a switch happens.
+*/
+func (u *ui) soundCard() fyne.CanvasObject {
+	cfg := u.status.Config
+	on := check("Play a sound when the output switches", cfg.SwitchSound, func(on bool) {
+		u.setSwitches(core.SetSwitchesRequest{SwitchSound: &on})
+	})
+	file := widget.NewEntry()
+	file.SetPlaceHolder("empty means the built-in chime")
+	file.SetText(cfg.SwitchSoundFile)
+	file.OnSubmitted = func(text string) {
+		text = strings.TrimSpace(text)
+		if text != u.status.Config.SwitchSoundFile {
+			u.setSwitches(core.SetSwitchesRequest{SwitchSoundFile: &text})
+		}
+	}
+	play := widget.NewButtonWithIcon("Play it now", theme.MediaPlayIcon(), func() {
+		u.sh.Load("Playing...", func(context.Context) error {
+			return core.PlaySwitchSound(u.server, u.status.Config)
+		})
+	})
+	return widgets.Card("Sound on a switch",
+		widgets.WithTip(on, "Played on the device that just became the output, after the switch, so it "+
+			"comes out of the new device."),
+		widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Sound file"), play,
+			dialogs.WithBrowse(u.sh.Window, file, false)),
+			"A 16-bit PCM WAV file. Press Enter to apply; empty means the built-in chime."),
+	)
 }
 
 /*

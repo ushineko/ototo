@@ -80,6 +80,8 @@ type Switcher struct {
 	Notifier notify.Notifier
 	// Loopback is the line-in loopback (R9.3); nil uses the real commands.
 	Loopback *loopback.Loopback
+	// Player plays the switch sound; nil plays over the sound server.
+	Player func(server string, cfg config.Config) error
 
 	dial func(server string) (server, error)
 
@@ -397,11 +399,19 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 	}
 
 	// One notification per change of hardware, so the 5 s tick that lands
-	// on the same device says nothing (R5.2).
+	// on the same device says nothing (R5.2). The sound follows the same
+	// rule, and plays after the switch so it comes out of the new device.
 	s.mu.Lock()
 	changed := dev.Sink != s.lastPhysical
 	s.lastPhysical = dev.Sink
 	s.mu.Unlock()
+	if changed && cfg.SwitchSound {
+		go func() {
+			if err := s.play(req(srv), cfg); err != nil {
+				ev.logf(LevelWarn, "switch sound: %v", err)
+			}
+		}()
+	}
 	if changed && cfg.SwitchNotifications {
 		input := "Unchanged"
 		if res.MicName != "" {
@@ -415,6 +425,35 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 		res.Notified = err == nil
 	}
 	return res, nil
+}
+
+// play plays the switch sound through Player, or over the sound server.
+func (s *Switcher) play(server string, cfg config.Config) error {
+	if s.Player != nil {
+		return s.Player(server, cfg)
+	}
+	return PlaySwitchSound(server, cfg)
+}
+
+// PlaySwitchSound plays what the settings name: the WAV file, or the chime.
+func PlaySwitchSound(server string, cfg config.Config) error {
+	sound := audio.Chime()
+	if cfg.SwitchSoundFile != "" {
+		var err error
+		if sound, err = audio.ReadWAV(config.ExpandPath(cfg.SwitchSoundFile)); err != nil {
+			return err
+		}
+	}
+	return audio.Play(server, sound)
+}
+
+// req names the server a connection was made to, for a sound played beside
+// it; the fake server of a test names nothing.
+func req(srv server) string {
+	if n, ok := srv.(interface{ ServerName() string }); ok {
+		return n.ServerName()
+	}
+	return ""
 }
 
 // micFor is R7: the input that should follow this output, by the link the
