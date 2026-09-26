@@ -13,7 +13,7 @@ done this job on a KDE Plasma desktop through thirteen releases, and it
 replaces it. The behaviour is that program's; the spec is
 [`specs/001`](specs/001-port-audio-source-switcher.md).
 
-**Version**: 0.1.2
+**Version**: 0.1.3
 
 [Screenshots](https://github.com/ushineko/ototo/blob/main/docs/screenshots.md)
 of the three sections, over invented devices.
@@ -244,7 +244,7 @@ window does not carry pictures of the window.
 
 ## Changelog
 
-### Unreleased
+### 0.1.3 (2026-09-25)
 
 - **A Hotkeys section.** A key per device, keys of your own for the volume
   steps, and the volume keys switch, moved here from Settings. The keys
