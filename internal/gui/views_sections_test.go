@@ -89,7 +89,7 @@ func TestASettingsSwitchWritesOneKey(t *testing.T) {
 	loaded(u)
 	body := u.buildSettings()
 	checks := fynetest.All[*widget.Check](body)
-	require.Len(t, checks, 6, "three settings switches and three desktop steps")
+	require.Len(t, checks, 5, "three settings switches and two desktop steps; the volume keys are in Hotkeys")
 	require.True(t, checks[0].Checked && checks[1].Checked)
 	selects := fynetest.All[*widget.Select](body)
 	require.Len(t, selects, 2, "the switch choice and the indicator text size")
@@ -249,4 +249,55 @@ func TestTheVolumeCardShowsThePlayingDevice(t *testing.T) {
 	u.status.Devices[0].Default = false
 	card = u.volumeCard()
 	require.Contains(t, fynetest.Texts(card), "Nothing is playing.")
+}
+
+// TestTheHotkeysSectionDrawsTheKeysAndThePage: supported, a row per device
+// and per volume step with the saved keys in them; unsupported, the page
+// with the commands and the device ids.
+func TestTheHotkeysSectionDrawsTheKeysAndThePage(t *testing.T) {
+	u := testUI(t)
+	loaded(u)
+	u.hotkeysOK = true
+	u.hotkeys = core.HotkeysResult{Supported: true, Enabled: true, VolumeKeys: true, Hotkeys: []core.HotkeyState{
+		{Hotkey: config.Hotkey{Key: "Meta+H", Action: config.HotkeyConnect, Device: "b"}, Bound: true},
+		{Hotkey: config.Hotkey{Key: "Meta+Num++", Action: config.HotkeyVolUp}, Bound: false},
+	}}
+	body := u.buildHotkeys()
+	entries := fynetest.All[*widget.Entry](body)
+	require.Len(t, entries, 4, "two devices and two volume steps")
+	texts := []string{}
+	for _, e := range entries {
+		texts = append(texts, e.Text)
+	}
+	require.Equal(t, []string{"", "Meta+H", "Meta+Num++", ""}, texts)
+	require.NoError(t, entries[0].Validator("Ctrl+Alt+F5"))
+	require.Error(t, entries[0].Validator("Meta+Wobble"), "a key the parser does not know passed")
+	checks := fynetest.All[*widget.Check](body)
+	require.Len(t, checks, 1, "the volume keys switch")
+	require.True(t, checks[0].Checked)
+	labels := fynetest.All[*widget.Label](body)
+	var states []string
+	for _, l := range labels {
+		if l.Text == "bound" || l.Text == "not bound" {
+			states = append(states, l.Text)
+		}
+	}
+	require.Equal(t, []string{"bound", "not bound"}, states)
+
+	// Unsupported: the same editable grid (keys are saved as notes), and a
+	// commands card that names each key beside its command with the binary's
+	// real path, plus the general form.
+	u.hotkeys = core.HotkeysResult{Supported: false, Enabled: true, Hotkeys: []core.HotkeyState{
+		{Hotkey: config.Hotkey{Key: "Meta+H", Action: config.HotkeyConnect, Device: "b"}},
+	}}
+	body = u.buildHotkeys()
+	require.NotEmpty(t, fynetest.All[*widget.Entry](body), "the keys are still editable off KDE")
+	require.Empty(t, fynetest.All[*widget.Check](body), "there is no volume-keys switch to install off KDE")
+	text := ""
+	for _, r := range fynetest.All[*widget.RichText](body) {
+		text += r.String() + "\n"
+	}
+	require.Contains(t, text, "Meta+H:", "the saved key is not listed with its command")
+	require.Contains(t, text, `--connect "b"`)
+	require.Contains(t, text, "--vol-up")
 }

@@ -2,13 +2,16 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/godbus/dbus/v5"
@@ -150,7 +153,61 @@ func slug(text string) string {
 }
 
 // bindEntry is the desktop entry name for a key.
-func bindEntry(key string) string { return "io.ushineko.ototo.bind-" + slug(key) + ".desktop" }
+func bindEntry(key string) string { return bindPrefix + slug(key) + ".desktop" }
+
+const bindPrefix = "io.ushineko.ototo.bind-"
+
+// bindRecordName holds, per binding entry, the command shortcuts the
+// binding released, so that unbinding gives them back (spec 002 D3).
+const bindRecordName = "hotkeys.json"
+
+func bindRecordPath() (string, error) {
+	p, err := recordPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(p), bindRecordName), nil
+}
+
+func readBindRecord() (map[string][]Holder, error) {
+	path, err := bindRecordPath()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(path) //nolint:gosec // ototo's own config directory
+	if os.IsNotExist(err) {
+		return map[string][]Holder{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	rec := map[string][]Holder{}
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return rec, nil
+}
+
+func writeBindRecord(rec map[string][]Holder) error {
+	path, err := bindRecordPath()
+	if err != nil {
+		return err
+	}
+	if len(rec) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", path, err)
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
+	}
+	raw, _ := json.MarshalIndent(rec, "", "  ")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
 
 /*
 Bind makes key run ototo with args, such as {"--connect", "AirPods Pro"} or
@@ -188,20 +245,37 @@ func Bind(ctx context.Context, key string, args []string) (released []string, er
 		return nil, fmt.Errorf("write %s: %w", entry, err)
 	}
 
-	// A command shortcut holding the key is released; the shortcuts file
-	// names it by the key as the desktop writes it.
-	shortcuts, err := ShortcutsPath()
-	if err != nil {
-		return nil, err
-	}
-	text, _ := os.ReadFile(shortcuts) //nolint:gosec // the user's own config
-	for _, h := range serviceHolders(string(text), key) {
-		if h == entry {
+	// Every command shortcut holding the key is released, read from the live
+	// registry rather than the shortcuts file, which lags and, after a
+	// retired tool, lists holders the file no longer shows. A native action
+	// (kmix) is left alone; a program's own keys are its to give up. Each
+	// released holder is recorded so unbinding gives it back.
+	for _, h := range shortcutHolders(ctx, conn, code) {
+		if h == entry || strings.HasPrefix(h, bindPrefix) || !strings.HasSuffix(h, ".desktop") {
 			continue
+		}
+		if _, err := os.Stat(filepath.Join(apps, h)); err != nil {
+			continue // not a local command shortcut
 		}
 		var ok bool
 		if err := accel(conn).CallWithContext(ctx, accelIface+".unregister", 0, h, launch).Store(&ok); err == nil && ok {
 			released = append(released, h)
+		}
+	}
+	// What was released is recorded before the key is taken, so it can
+	// be given back; a second bind of the same key adds nothing.
+	if len(released) > 0 {
+		rec, err := readBindRecord()
+		if err != nil {
+			return released, err
+		}
+		for _, h := range released {
+			if !slices.ContainsFunc(rec[entry], func(x Holder) bool { return x.Component == h }) {
+				rec[entry] = append(rec[entry], Holder{Component: h, Action: launch, Key: code, Service: true})
+			}
+		}
+		if err := writeBindRecord(rec); err != nil {
+			return released, err
 		}
 	}
 	return released, register(ctx, conn, actionID(entry, launch, name), code)
@@ -228,14 +302,91 @@ func Unbind(ctx context.Context, key string) (bool, error) {
 	if err := os.Remove(filepath.Join(apps, entry)); err != nil && !os.IsNotExist(err) {
 		return ok, fmt.Errorf("remove %s: %w", entry, err)
 	}
-	return ok, nil
+	// What the binding released is given back. A holder that is gone (an
+	// uninstalled program's entry) cannot take the key; that is reported
+	// and the record dropped either way, since there is nothing to give
+	// it to later.
+	rec, err := readBindRecord()
+	if err != nil {
+		return ok, err
+	}
+	var errs []error
+	for _, h := range rec[entry] {
+		if err := register(ctx, conn, actionID(h.Component, h.Action, h.Component), h.Key); err != nil {
+			errs = append(errs, fmt.Errorf("give %s back: %w", key, err))
+		}
+	}
+	delete(rec, entry)
+	if err := writeBindRecord(rec); err != nil {
+		errs = append(errs, err)
+	}
+	return ok, errors.Join(errs...)
 }
 
-// serviceHolders are the command shortcut entries whose key is key, as the
-// shortcuts file spells it.
-func serviceHolders(text, key string) []string {
-	want := strings.TrimSpace(key)
-	var out []string
+// Binding is a key of the person's own as the desktop has it: the entry,
+// the key as the shortcuts file spells it (or as the entry's name implies
+// when the file does not have it), what it runs after "ototo", and whether
+// kglobalaccel has a key on it now.
+type Binding struct {
+	Entry string
+	Key   string
+	Args  []string
+	Bound bool
+}
+
+/*
+ListBindings reads ototo's binding entries under applications/ and the
+shortcuts file, so that keys made before the settings file carried them
+can be adopted (spec 002 R1.3), and so the window can say what is bound.
+*/
+func ListBindings() ([]Binding, error) {
+	apps, err := applicationsDir()
+	if err != nil {
+		return nil, err
+	}
+	names, err := os.ReadDir(apps)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("read %s: %w", apps, err)
+	}
+	shortcuts, err := ShortcutsPath()
+	if err != nil {
+		return nil, err
+	}
+	text, _ := os.ReadFile(shortcuts) //nolint:gosec // the user's own config
+	keys := serviceKeys(string(text))
+	var out []Binding
+	for _, n := range names {
+		if !strings.HasPrefix(n.Name(), bindPrefix) || !strings.HasSuffix(n.Name(), ".desktop") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(apps, n.Name())) //nolint:gosec // ototo's own entry
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", n.Name(), err)
+		}
+		b := Binding{Entry: n.Name()}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if exec, ok := strings.CutPrefix(line, "Exec="); ok {
+				args := unquoteExec(exec)
+				if len(args) > 0 && args[0] == "ototo" {
+					args = args[1:]
+				}
+				b.Args = args
+			}
+		}
+		if k, ok := keys[n.Name()]; ok && k != "" && !strings.EqualFold(k, "none") {
+			b.Key, b.Bound = k, true
+		} else {
+			b.Key = unslug(strings.TrimSuffix(strings.TrimPrefix(n.Name(), bindPrefix), ".desktop"))
+		}
+		out = append(out, b)
+	}
+	return out, nil
+}
+
+// serviceKeys maps each command shortcut entry in the shortcuts file to
+// its first key, as the file spells it.
+func serviceKeys(text string) map[string]string {
+	out := map[string]string{}
 	section := ""
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -251,14 +402,93 @@ func serviceHolders(text, key string) []string {
 			continue
 		}
 		if value, ok := strings.CutPrefix(line, launch+"="); ok {
-			for _, seq := range strings.Split(value, "\t") {
-				if strings.EqualFold(strings.TrimSpace(seq), want) {
-					out = append(out, section)
-				}
-			}
+			first, _, _ := strings.Cut(value, "\t")
+			out[section] = strings.TrimSpace(first)
 		}
 	}
 	return out
+}
+
+// unslug is slug's inverse as far as it goes: "meta-num-plus" is
+// "Meta+Num++", "ctrl-alt-f5" is "Ctrl+Alt+F5".
+func unslug(s string) string {
+	var parts []string
+	for _, p := range strings.Split(s, "-") {
+		switch p {
+		case "meta", "ctrl", "alt", "shift", "num":
+			parts = append(parts, strings.ToUpper(p[:1])+p[1:])
+		case "plus":
+			parts = append(parts, "+")
+		case "minus":
+			parts = append(parts, "-")
+		case "":
+		default:
+			parts = append(parts, strings.ToUpper(p[:1])+p[1:])
+		}
+	}
+	return strings.Join(parts, "+")
+}
+
+// unquoteExec splits an Exec line the way the desktop entry specification
+// reads it: on whitespace, with double-quoted arguments kept whole and
+// their escapes undone, and %% as one percent sign.
+func unquoteExec(exec string) []string {
+	var out []string
+	var cur strings.Builder
+	inQuote, escaped, have := false, false, false
+	for _, r := range exec {
+		switch {
+		case escaped:
+			cur.WriteRune(r)
+			escaped = false
+		case inQuote && r == '\\':
+			escaped = true
+		case r == '"':
+			inQuote = !inQuote
+			have = true
+		case !inQuote && unicode.IsSpace(r):
+			if have || cur.Len() > 0 {
+				out = append(out, strings.ReplaceAll(cur.String(), "%%", "%"))
+				cur.Reset()
+				have = false
+			}
+		default:
+			cur.WriteRune(r)
+			have = true
+		}
+	}
+	if have || cur.Len() > 0 {
+		out = append(out, strings.ReplaceAll(cur.String(), "%%", "%"))
+	}
+	return out
+}
+
+// BindingIsLive says whether kglobalaccel holds key on entry now, read
+// from the registry rather than the on-disk file, which lags a bind.
+func BindingIsLive(ctx context.Context, entry, key string) bool {
+	code, err := ParseKey(key)
+	if err != nil {
+		return false
+	}
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return false
+	}
+	return slices.Contains(shortcutHolders(ctx, conn, code), entry)
+}
+
+// Supported says whether keys can be bound here: kglobalaccel answers on
+// the session bus, which is KDE Plasma (spec 002 D6). The desktop's name
+// is not asked, since the bus is what the bindings need.
+func Supported(ctx context.Context) bool {
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var names [][]string // aas: each component is its id, friendly name, and more
+	return accel(conn).CallWithContext(ctx, accelIface+".allMainComponents", 0).Store(&names) == nil
 }
 
 // quoteExec quotes one Exec argument the way the desktop entry

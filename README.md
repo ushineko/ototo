@@ -54,9 +54,15 @@ of the three sections, over invented devices.
   file of your own, played on the device that just became the output.
 - **The README, in the window.** About holds this document, with the routing
   diagram; the screenshots are a page of their own, linked above.
-- **The desktop, on request.** Autostart, the indicator's window rule and the
-  volume keys are switches in Settings. Nothing is written to the desktop
-  until you turn one on, and each one says how it is undone.
+- **Hotkeys.** A key per device, keys that step the volume, and the volume
+  keys themselves, on KDE Plasma: a section of their own, with one click
+  back to the desktop's stock keys and one click back to yours. The AirPods
+  are the case: they do not always auto-connect when an iOS device is
+  near, and a key that connects them is how they are reached. On another
+  desktop the section is a page of the commands to bind yourself.
+- **The desktop, on request.** Autostart and the indicator's window rule are
+  switches in Settings. Nothing is written to the desktop until you turn one
+  on, and each one says how it is undone.
 
 ## How it routes audio
 
@@ -157,17 +163,27 @@ A build that is not the release says so: `0.1.0-1a2b3c4-dev` unless HEAD is on
 the version's tag with a clean tree. Packages stamp their own version and are
 unaffected.
 
-Keys of your own, on KDE Plasma:
+Keys of your own are the Hotkeys section; the same from the command line,
+on KDE Plasma:
 
 ```
-ototo --desktop bind Meta+A --connect "AirPods Pro"   # a key that switches to a device
+ototo --desktop bind Meta+A --connect "AirPods Pro"   # a key that connects and switches to a device
 ototo --desktop bind "Meta+Num++" --vol-up             # a key that steps the volume
 ototo --desktop unbind Meta+A
 ```
 
-The key is spelled as System Settings spells it. A custom shortcut that held
-the key is released and named; another program's own shortcut is left alone
-and the binding is refused until you release it in System Settings.
+The key is spelled as System Settings spells it, and lands in the settings
+file either way. A custom shortcut that held the key is released, recorded
+and given back when the key is; another program's own shortcut is left
+alone and the binding is refused until you release it in System Settings.
+On a desktop without KDE's global shortcut service nothing is bound, and the
+Hotkeys section shows the commands to bind yourself:
+
+```
+ototo --connect "bt:AA:BB:CC:DD:EE:FF"   # a device id from Outputs; a name works too
+ototo --vol-up
+ototo --vol-down
+```
 
 `--section` and `--scheme` open the window on a section in a colour scheme
 without saving either, for the screenshot harness. `--config` and `--server`
@@ -229,6 +245,25 @@ window does not carry pictures of the window.
 ## Changelog
 
 ### Unreleased
+
+- **A Hotkeys section.** A key per device, keys of your own for the volume
+  steps, and the volume keys switch, moved here from Settings. The keys
+  live in the settings file; "Restore stock keys" unbinds every one and
+  gives back what each replaced, the volume keys included, and "Use my
+  keys" puts them all back. Keys bound from the command line before this
+  are adopted into the settings the first time the section reads them. On
+  a desktop that is not KDE Plasma the section is a page of the commands
+  to bind yourself, editable and saved, with the running binary's own path.
+- **Binding a key is done under a shortcut block** so a key press cannot
+  land in KGlobalAccel while a shortcut is half registered, which crashed
+  kwin_wayland. Taking a key releases every stale holder of it, and the
+  bound state is read from the live registry.
+- **The service cache is rebuilt after writing a shortcut** (kbuildsycoca),
+  so a bound key launches at once instead of doing nothing until KDE next
+  notices the change.
+- **A volume key steps from the level ototo aims at**, not the sink's own
+  reading, so a Bluetooth headset that reports its volume back slowly and
+  in coarse steps (AirPods) no longer jumps the volume forward and back.
 
 - On a disconnect the indicator no longer names JamesDSP for a moment
   before the device the switch lands on: a floating filter is no output,

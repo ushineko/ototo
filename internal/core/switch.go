@@ -89,6 +89,13 @@ type Switcher struct {
 	mu           sync.Mutex
 	jdspBroken   bool
 	lastPhysical string
+	// vol tracks the level a run of volume-key presses is aiming at, so a
+	// device that reports its own volume back slowly and in coarse steps
+	// (a Bluetooth headset over AVRCP) does not send each press's delta off
+	// a stale, re-quantized reading, which jumps the volume back and forth.
+	volSink    string
+	volPercent int
+	volAt      time.Time
 	// seen is when each sink was first listed; zero for the ones there at
 	// the first listing. A sink first seen a moment ago is fresh (leadFor).
 	seen map[string]time.Time

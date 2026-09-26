@@ -7,9 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
-	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -35,6 +36,7 @@ are set; godbus shares one connection per process, which is that.
 // one off and the shortcuts file named the keys it had really bound.
 const (
 	keyVolumeDown int32 = 0x01000070
+	keyVolumeMute int32 = 0x01000071
 	keyVolumeUp   int32 = 0x01000072
 )
 
@@ -199,6 +201,49 @@ func holders(text string) []Holder {
 
 func accel(conn *dbus.Conn) dbus.BusObject { return conn.Object(accelName, accelPath) }
 
+// RefreshServiceCache rebuilds KDE's service cache so kglobalaccel can find
+// and launch a command shortcut's .desktop file. Without it a shortcut is
+// registered and holds its key but the key press launches nothing, because
+// kglobalaccel resolves the entry through the cache, which a new file is not
+// in yet. It is what KDE runs itself when the applications directory changes,
+// so running it after writing or removing entries is not disruptive. Best
+// effort: a machine without kbuildsycoca is one where nothing was cached to
+// miss.
+func RefreshServiceCache(ctx context.Context) error {
+	bin := ""
+	for _, name := range []string{"kbuildsycoca6", "kbuildsycoca5"} {
+		if p, err := exec.LookPath(name); err == nil {
+			bin = p
+			break
+		}
+	}
+	if bin == "" {
+		return nil
+	}
+	if err := exec.CommandContext(ctx, bin).Run(); err != nil {
+		return fmt.Errorf("rebuild the service cache: %w", err)
+	}
+	return nil
+}
+
+// SetShortcutsBlocked suspends or resumes kglobalaccel's dispatch of every
+// global shortcut. It is held around a batch of registry changes so that a
+// keypress cannot land in processKey while a command shortcut is half
+// registered, which dereferences a null component and takes kwin_wayland
+// down with it (a KGlobalAccel bug, but ours to avoid). Blocking stops the
+// person's own shortcuts too, so the batch is kept short and always
+// unblocks, whatever happened.
+func SetShortcutsBlocked(ctx context.Context, blocked bool) error {
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return fmt.Errorf("connect to the session bus: %w", err)
+	}
+	if err := accel(conn).CallWithContext(ctx, accelIface+".blockGlobalShortcuts", 0, blocked).Err; err != nil {
+		return fmt.Errorf("block global shortcuts: %w", err)
+	}
+	return nil
+}
+
 func actionID(component, action, friendly string) []string {
 	return []string{component, action, friendly, "Launch"}
 }
@@ -296,18 +341,112 @@ refused as held by another shortcut, which it was for a few hundred
 milliseconds. So the key is asked about first, for up to three seconds.
 */
 func register(ctx context.Context, conn *dbus.Conn, id []string, key int32) error {
-	waitFree(ctx, conn, id[0], key)
 	if err := accel(conn).CallWithContext(ctx, accelIface+".doRegister", 0, id).Err; err != nil {
 		return fmt.Errorf("register %s: %w", id[0], err)
 	}
-	var got []keySeq
-	if err := accel(conn).CallWithContext(ctx, accelIface+".setShortcutKeys", 0, id, []keySeq{{Keys: []int32{key}}}, setPresent|noAutoloading).Store(&got); err != nil {
+	if err := accel(conn).CallWithContext(ctx, accelIface+".setShortcutKeys", 0, id, []keySeq{{Keys: []int32{key}}}, setPresent|noAutoloading).Err; err != nil {
 		return fmt.Errorf("bind %s to %s: %w", keyName(key), id[0], err)
 	}
-	if len(got) == 0 || len(got[0].Keys) == 0 || got[0].Keys[0] != key {
-		return fmt.Errorf("%s is held by another shortcut; release it in System Settings and turn this on again", keyName(key))
-	}
+	// No read-back here: the whole batch runs with dispatch blocked, and
+	// the truth is read once, unblocked, by the caller (BindingIsLive), when
+	// the registry is settled. Reading back mid-batch raced the teardown of
+	// a shortcut released a moment before and reported a false failure.
 	return nil
+}
+
+// shortcutByKey is one row of getGlobalShortcutsByKey (ssssssaiai): the
+// action's two names, the component's unique id and friendly name, the
+// context's two names, then the current and default keys. The component's
+// unique id, the third string, is the desktop entry a bind names.
+type shortcutByKey struct {
+	ActionUnique, ActionFriendly   string
+	Component, ComponentFriendly   string // the desktop entry a bind names
+	ContextUnique, ContextFriendly string
+	Keys, DefaultKeys              []int32
+}
+
+// shortcutHolders are every component that holds key now. kglobalaccel can
+// list several for one key, the active one and stale registrations that
+// never let go (a retired tool's command shortcuts, above all), so a caller
+// that needs the truth checks the whole set rather than the first.
+func shortcutHolders(ctx context.Context, conn *dbus.Conn, key int32) []string {
+	var rows []shortcutByKey
+	if err := accel(conn).CallWithContext(ctx, accelIface+".getGlobalShortcutsByKey", 0, key).Store(&rows); err != nil {
+		return nil
+	}
+	var out []string
+	for _, r := range rows {
+		if slices.Contains(r.Keys, key) {
+			out = append(out, r.Component)
+		}
+	}
+	return out
+}
+
+// keyDefaults are the Plasma stock owners of the volume keys: kmix's own
+// actions. Restoring the volume keys means handing these back their keys,
+// which is what "stock" is on Plasma, rather than whatever held a key when
+// ototo took it (which, straight off the original tool, was the original).
+var keyDefaults = []struct {
+	action string
+	key    int32
+}{
+	{"increase_volume", keyVolumeUp},
+	{"decrease_volume", keyVolumeDown},
+	{"mute", keyVolumeMute},
+}
+
+// restorePlasmaVolume gives Volume Up, Down and Mute back to kmix, their
+// stock owners, and releases every stale command shortcut still holding one
+// (a retired tool's), so each key has one owner: Plasma's. The key is set on
+// kmix's real action id, read live, not a built one: an id with the wrong
+// friendly name registers the key to nothing and the press is an error beep,
+// not a volume change.
+func restorePlasmaVolume(ctx context.Context, conn *dbus.Conn) error {
+	apps, _ := applicationsDir()
+	actions := componentActions(ctx, conn, "kmix")
+	var errs []error
+	for _, d := range keyDefaults {
+		for _, h := range shortcutHolders(ctx, conn, d.key) {
+			if h == "kmix" || !strings.HasSuffix(h, ".desktop") {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(apps, h)); err != nil {
+				continue // not a command shortcut of a local .desktop
+			}
+			var ok bool
+			_ = accel(conn).CallWithContext(ctx, accelIface+".unregister", 0, h, launch).Store(&ok)
+		}
+		id, ok := actions[d.action]
+		if !ok {
+			continue // kmix has no such action here; nothing to give back to
+		}
+		call := accel(conn).CallWithContext(ctx, accelIface+".setForeignShortcutKeys", 0,
+			id, []keySeq{{Keys: []int32{d.key}}})
+		if call.Err != nil {
+			errs = append(errs, fmt.Errorf("give %s back to Plasma: %w", keyName(d.key), call.Err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// componentActions reads a component's actions from kglobalaccel, keyed by
+// the action's unique name, each value the full action id (component unique,
+// action unique, and the two friendly names) that setForeignShortcutKeys
+// needs verbatim.
+func componentActions(ctx context.Context, conn *dbus.Conn, component string) map[string][]string {
+	var actions [][]string
+	if err := accel(conn).CallWithContext(ctx, accelIface+".allActionsForComponent", 0,
+		[]string{component, "", "", ""}).Store(&actions); err != nil {
+		return nil
+	}
+	out := make(map[string][]string, len(actions))
+	for _, id := range actions {
+		if len(id) >= 2 {
+			out[id[1]] = id
+		}
+	}
+	return out
 }
 
 // RemoveVolumeKeys unregisters ototo's shortcuts, removes their entries,
@@ -318,20 +457,15 @@ func RemoveVolumeKeys(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	raw, err := os.ReadFile(recPath) //nolint:gosec // ototo's own config directory
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("read %s: %w", recPath, err)
-	}
-	var rec record
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return false, fmt.Errorf("parse %s: %w", recPath, err)
-	}
+	// The record's absence means ototo does not hold the keys, but restoring
+	// still runs: the knob and the media keys can be held by a retired tool
+	// with no ototo record at all, and "restore stock" must give them back
+	// to Plasma regardless.
+	_, statErr := os.Stat(recPath)
+	had := statErr == nil
 	conn, err := dbus.SessionBus()
 	if err != nil {
-		return false, fmt.Errorf("connect to the session bus: %w", err)
+		return had, fmt.Errorf("connect to the session bus: %w", err)
 	}
 	var errs []error
 	for _, file := range []string{upEntry, downEntry} {
@@ -348,37 +482,18 @@ func RemoveVolumeKeys(ctx context.Context) (bool, error) {
 			}
 		}
 	}
-	for _, h := range rec.Holders {
-		if h.Service {
-			if err := register(ctx, conn, actionID(h.Component, h.Action, h.Component), h.Key); err != nil {
-				errs = append(errs, fmt.Errorf("give back: %w", err))
-			}
-			continue
-		}
-		call := accel(conn).CallWithContext(ctx, accelIface+".setForeignShortcutKeys", 0,
-			actionID(h.Component, h.Action, ""), []keySeq{{Keys: []int32{h.Key}}})
-		if call.Err != nil {
-			errs = append(errs, fmt.Errorf("give %s back to %s: %w", keyName(h.Key), h.Component, call.Err))
-		}
+	// Volume Up, Down and Mute go back to Plasma's own kmix, which is what
+	// "stock" is: the recorded holder was whatever held the key when ototo
+	// took it, which straight off the original tool was the original, not
+	// Plasma. restorePlasmaVolume also releases any stale command shortcut
+	// still holding one, so the knob and the media keys work again.
+	if err := restorePlasmaVolume(ctx, conn); err != nil {
+		errs = append(errs, err)
 	}
 	if err := os.Remove(recPath); err != nil && !os.IsNotExist(err) {
 		errs = append(errs, fmt.Errorf("remove %s: %w", recPath, err))
 	}
-	return true, errors.Join(errs...)
-}
-
-// waitFree returns when kglobalaccel says the key is available to the
-// component, or after three seconds, whichever is first.
-func waitFree(ctx context.Context, conn *dbus.Conn, component string, key int32) {
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		var free bool
-		err := accel(conn).CallWithContext(ctx, accelIface+".globalShortcutAvailable", 0, keySeq{Keys: []int32{key}}, component).Store(&free)
-		if err != nil || free || time.Now().After(deadline) {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	return had, errors.Join(errs...)
 }
 
 func keyName(key int32) string {
@@ -387,6 +502,8 @@ func keyName(key int32) string {
 		return "Volume Up"
 	case keyVolumeDown:
 		return "Volume Down"
+	case keyVolumeMute:
+		return "Volume Mute"
 	default:
 		return fmt.Sprintf("key %#x", key)
 	}
