@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -300,14 +301,67 @@ func register(ctx context.Context, conn *dbus.Conn, id []string, key int32) erro
 	if err := accel(conn).CallWithContext(ctx, accelIface+".doRegister", 0, id).Err; err != nil {
 		return fmt.Errorf("register %s: %w", id[0], err)
 	}
-	var got []keySeq
-	if err := accel(conn).CallWithContext(ctx, accelIface+".setShortcutKeys", 0, id, []keySeq{{Keys: []int32{key}}}, setPresent|noAutoloading).Store(&got); err != nil {
+	if err := accel(conn).CallWithContext(ctx, accelIface+".setShortcutKeys", 0, id, []keySeq{{Keys: []int32{key}}}, setPresent|noAutoloading).Err; err != nil {
 		return fmt.Errorf("bind %s to %s: %w", keyName(key), id[0], err)
 	}
-	if len(got) == 0 || len(got[0].Keys) == 0 || got[0].Keys[0] != key {
-		return fmt.Errorf("%s is held by another shortcut; release it in System Settings and turn this on again", keyName(key))
+	// setShortcutKeys returns the keys it granted, but returns them empty
+	// when a registration a moment ago is still being torn down, so the
+	// truth is read from who holds the key: this component, which is the
+	// bind taking; another, which is the refusal; or, briefly, no one,
+	// which is retried. Read back rather than trust the immediate answer.
+	return confirmBound(ctx, conn, id[0], key)
+}
+
+// confirmBound polls getGlobalShortcutsByKey until the key is held by
+// component, up to three seconds, and reports what holds it otherwise.
+func confirmBound(ctx context.Context, conn *dbus.Conn, component string, key int32) error {
+	deadline := time.Now().Add(3 * time.Second)
+	var other string
+	for {
+		holder, ok := shortcutHolder(ctx, conn, key)
+		switch {
+		case ok && holder == component:
+			return nil
+		case ok:
+			other = holder
+		}
+		if time.Now().After(deadline) {
+			if other != "" && other != component {
+				return fmt.Errorf("%s is held by %s; release it in System Settings and turn this on again", keyName(key), other)
+			}
+			return fmt.Errorf("%s did not bind; try again", keyName(key))
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("bind %s: %w", keyName(key), ctx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
-	return nil
+}
+
+// shortcutByKey is one row of getGlobalShortcutsByKey (ssssssaiai): the
+// action's two names, the component's unique id and friendly name, the
+// context's two names, then the current and default keys. The component's
+// unique id, the third string, is the desktop entry a bind names.
+type shortcutByKey struct {
+	ActionUnique, ActionFriendly   string
+	Component, ComponentFriendly   string // the desktop entry a bind names
+	ContextUnique, ContextFriendly string
+	Keys, DefaultKeys              []int32
+}
+
+// shortcutHolder is the component that holds key now, if any.
+func shortcutHolder(ctx context.Context, conn *dbus.Conn, key int32) (string, bool) {
+	var rows []shortcutByKey
+	if err := accel(conn).CallWithContext(ctx, accelIface+".getGlobalShortcutsByKey", 0, key).Store(&rows); err != nil {
+		return "", false
+	}
+	for _, r := range rows {
+		if slices.Contains(r.Keys, key) {
+			return r.Component, true
+		}
+	}
+	return "", false
 }
 
 // RemoveVolumeKeys unregisters ototo's shortcuts, removes their entries,
