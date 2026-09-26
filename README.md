@@ -230,6 +230,11 @@ window does not carry pictures of the window.
 
 ### Unreleased
 
+- On a disconnect the indicator no longer names JamesDSP for a moment
+  before the device the switch lands on: a floating filter is no output,
+  so a server event while it floats shows nothing, and the switch that
+  follows shows the next device.
+
 - The switch sound waits for the route: it plays once the server reports
   the new default and, through JamesDSP, once the graph reports the filter
   linked to the new device, and it plays into the device's own sink, so it

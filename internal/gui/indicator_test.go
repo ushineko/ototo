@@ -92,6 +92,7 @@ func TestTheIndicatorNamesTheDevice(t *testing.T) {
 	u.status = core.StatusResult{Config: config.Default(), Devices: []devices.Device{{Sink: "a", Name: "Speakers"}}}
 	require.Equal(t, "Speakers", u.deviceName("a"))
 	require.Equal(t, "alsa_output.b", u.deviceName("alsa_output.b"))
+	require.Equal(t, "No output", u.deviceName(devices.JamesDSPSink), "a floating filter was named as a device")
 
 	u.showVolume(core.VolumeResult{Sink: "a", Percent: 40})
 	require.Equal(t, "Speakers", u.osd.device.Text)
