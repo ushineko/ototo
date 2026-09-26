@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"github.com/ushineko/ototo/internal/devices"
 )
@@ -36,12 +37,51 @@ func (s *Switcher) Volume(ctx context.Context, req VolumeRequest) (VolumeResult,
 	}
 	res := VolumeResult{Sink: sink}
 	if req.Delta != 0 {
-		if _, err := srv.AdjustVolume(sink, req.Delta); err != nil {
-			return res, err
-		}
+		return s.adjustTracked(srv, sink, req.Delta)
 	}
 	res.Percent, res.Muted, err = srv.Volume(sink)
 	return res, err
+}
+
+// volWindow is how long a tracked level stays the base for the next press;
+// past it, a fresh reading is taken, so a change made elsewhere is picked up.
+const volWindow = 3 * time.Second
+
+// adjustTracked steps the volume from the level ototo last aimed at, when a
+// press followed another closely, rather than from the sink's own reading,
+// which a Bluetooth headset reports back slowly and rounds to its own steps.
+// The level set is absolute and clamped to 0..100, and the intended level is
+// what the indicator shows, so a run of presses moves smoothly even while the
+// device quantizes underneath.
+func (s *Switcher) adjustTracked(srv server, sink string, delta int) (VolumeResult, error) {
+	res := VolumeResult{Sink: sink}
+	s.mu.Lock()
+	base := s.volPercent
+	fresh := s.volSink == sink && time.Since(s.volAt) < volWindow
+	s.mu.Unlock()
+	if !fresh {
+		cur, _, err := srv.Volume(sink)
+		if err != nil {
+			return res, err
+		}
+		base = cur
+	}
+	target := base + delta
+	if target < 0 {
+		target = 0
+	}
+	if target > 100 {
+		target = 100
+	}
+	if _, err := srv.SetVolume(sink, target); err != nil {
+		return res, err
+	}
+	s.mu.Lock()
+	s.volSink, s.volPercent, s.volAt = sink, target, time.Now()
+	s.mu.Unlock()
+	_, res.Muted, _ = srv.Volume(sink)
+	res.Percent = target
+	return res, nil
 }
 
 // SetVolumeRequest sets the playing output's volume, or mutes it.

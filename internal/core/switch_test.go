@@ -592,3 +592,37 @@ func TestVolumeFollowsTheRouting(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, devices.JamesDSPSink, res.Sink, "floating JamesDSP has no hardware sink to report")
 }
+
+// TestVolumeStepsFromTheIntendedLevelNotTheDeviceReading: a run of presses
+// steps from the level ototo aimed at, so a device that reports a rounded,
+// lagging value back (a Bluetooth headset) does not send the next press off
+// that bounce. Past the window a fresh reading is taken.
+func TestVolumeStepsFromTheIntendedLevelNotTheDeviceReading(t *testing.T) {
+	w := newWorld(t, false)
+	w.srv.defaultSink = speakers
+	w.srv.volumes[speakers] = 60
+
+	res, err := w.sw.Volume(context.Background(), VolumeRequest{Request: w.req(), Delta: 5})
+	require.NoError(t, err)
+	require.Equal(t, 65, res.Percent)
+
+	// The device rounds and reports 62 back; the next press must still aim
+	// at 70, from the intended 65, not 67 from the reading.
+	w.srv.volumes[speakers] = 62
+	res, err = w.sw.Volume(context.Background(), VolumeRequest{Request: w.req(), Delta: 5})
+	require.NoError(t, err)
+	require.Equal(t, 70, res.Percent, "the press stepped off the device's bounced reading")
+
+	// Down clamps at 0, up at 100.
+	for range 30 {
+		res, _ = w.sw.Volume(context.Background(), VolumeRequest{Request: w.req(), Delta: 5})
+	}
+	require.Equal(t, 100, res.Percent)
+
+	// Past the window a fresh reading is the base again.
+	w.sw.volAt = w.sw.volAt.Add(-volWindow - time.Second)
+	w.srv.volumes[speakers] = 40
+	res, err = w.sw.Volume(context.Background(), VolumeRequest{Request: w.req(), Delta: 5})
+	require.NoError(t, err)
+	require.Equal(t, 45, res.Percent, "a stale track was not refreshed")
+}
