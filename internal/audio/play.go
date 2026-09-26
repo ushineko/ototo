@@ -41,32 +41,42 @@ func (s Sound) WithLead(lead time.Duration) Sound {
 	return out
 }
 
-// Chime is the built-in sound: one low boop, a third of a second, a tone
-// falling from 170 Hz to 130 Hz with a touch of its octave for body, that
-// swells for 15 ms and dies away. It sits below the desktop's own
-// notification sounds, which are bright, so it is not mistaken for one.
+// Chime is the built-in sound: one low boop, a third of a second, the way
+// a synth bass plays a note. The tone falls from 170 Hz to 130 Hz; it
+// starts in 2 ms with its upper harmonics open, which close over the first
+// tenth of a second as a filter envelope would, while the fundamental dies
+// away more slowly. It sits below the desktop's own notification sounds,
+// which are bright, so it is not mistaken for one.
 func Chime() Sound {
 	const (
-		rate   = 48000
-		length = 320 * time.Millisecond
-		attack = rate * 15 / 1000
+		rate    = 48000
+		length  = 320 * time.Millisecond
+		attack  = rate * 2 / 1000
+		release = rate * 10 / 1000
 	)
 	n := int(rate * length.Seconds())
 	out := make([]float32, n)
 	phase := 0.0
+	peak := 0.0
 	for i := range out {
 		t := float64(i) / float64(n)
 		hz := 170 - 40*t
 		phase += 2 * math.Pi * hz / rate
-		v := math.Sin(phase) + 0.25*math.Sin(2*phase)
-		env := math.Exp(-3.5 * t)
+		bright := math.Exp(-12 * t) // the harmonics close first
+		v := math.Sin(phase) +
+			bright*(0.6*math.Sin(2*phase)+0.35*math.Sin(3*phase)+0.2*math.Sin(4*phase)+0.1*math.Sin(5*phase))
+		env := math.Exp(-4 * t)
 		if i < attack {
 			env *= float64(i) / float64(attack)
 		}
-		if n-i < attack {
-			env *= float64(n-i) / float64(attack)
+		if n-i < release {
+			env *= float64(n-i) / float64(release)
 		}
-		out[i] = float32(v * env * 0.38)
+		out[i] = float32(v * env)
+		peak = max(peak, math.Abs(float64(out[i])))
+	}
+	for i := range out {
+		out[i] = float32(float64(out[i]) / peak * 0.45)
 	}
 	return Sound{Rate: rate, Channels: 1, Samples: out}
 }
