@@ -462,6 +462,21 @@ func unquoteExec(exec string) []string {
 	return out
 }
 
+// BindingIsLive says whether kglobalaccel holds key on entry now, read
+// from the registry rather than the on-disk file, which lags a bind.
+func BindingIsLive(ctx context.Context, entry, key string) bool {
+	code, err := ParseKey(key)
+	if err != nil {
+		return false
+	}
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return false
+	}
+	holder, ok := shortcutHolder(ctx, conn, code)
+	return ok && holder == entry
+}
+
 // Supported says whether keys can be bound here: kglobalaccel answers on
 // the session bus, which is KDE Plasma (spec 002 D6). The desktop's name
 // is not asked, since the bus is what the bindings need.

@@ -21,9 +21,12 @@ which is the desktop, an in-memory one for the demo server, or a test's.
 // keyBinder is what the hotkeys need from the desktop.
 type keyBinder interface {
 	Supported(ctx context.Context) bool
+	// Block suspends and resumes shortcut dispatch around a batch of
+	// changes, so a keypress cannot crash the compositor mid-registration.
+	Block(ctx context.Context, blocked bool) error
 	Bind(ctx context.Context, key string, args []string) (released []string, err error)
 	Unbind(ctx context.Context, key string) (bool, error)
-	List() ([]desktop.Binding, error)
+	List(ctx context.Context) ([]desktop.Binding, error)
 	InstallVolumeKeys(ctx context.Context) error
 	RemoveVolumeKeys(ctx context.Context) (bool, error)
 	VolumeKeysInstalled() (bool, error)
@@ -32,13 +35,27 @@ type keyBinder interface {
 type desktopKeys struct{}
 
 func (desktopKeys) Supported(ctx context.Context) bool { return desktop.Supported(ctx) }
+func (desktopKeys) Block(ctx context.Context, blocked bool) error {
+	return desktop.SetShortcutsBlocked(ctx, blocked)
+}
 func (desktopKeys) Bind(ctx context.Context, key string, args []string) ([]string, error) {
 	return desktop.Bind(ctx, key, args)
 }
 func (desktopKeys) Unbind(ctx context.Context, key string) (bool, error) {
 	return desktop.Unbind(ctx, key)
 }
-func (desktopKeys) List() ([]desktop.Binding, error) { return desktop.ListBindings() }
+func (desktopKeys) List(ctx context.Context) ([]desktop.Binding, error) {
+	list, err := desktop.ListBindings()
+	if err != nil {
+		return nil, err
+	}
+	// The on-disk file lags a bind, so bound-ness is read from the live
+	// registry, which is right at once.
+	for i := range list {
+		list[i].Bound = desktop.BindingIsLive(ctx, list[i].Entry, list[i].Key)
+	}
+	return list, nil
+}
 func (desktopKeys) InstallVolumeKeys(ctx context.Context) error {
 	return desktop.InstallVolumeKeys(ctx)
 }
@@ -76,7 +93,8 @@ func (d *demoKeys) match(cfg config.Config) {
 	}
 }
 
-func (d *demoKeys) Supported(context.Context) bool { return true }
+func (d *demoKeys) Supported(context.Context) bool    { return true }
+func (d *demoKeys) Block(context.Context, bool) error { return nil }
 func (d *demoKeys) Bind(_ context.Context, key string, args []string) ([]string, error) {
 	if _, err := desktop.ParseKey(key); err != nil {
 		return nil, err
@@ -93,7 +111,7 @@ func (d *demoKeys) Unbind(_ context.Context, key string) (bool, error) {
 	delete(d.bound, key)
 	return had, nil
 }
-func (d *demoKeys) List() ([]desktop.Binding, error) {
+func (d *demoKeys) List(context.Context) ([]desktop.Binding, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	out := make([]desktop.Binding, 0, len(d.bound))
@@ -119,6 +137,27 @@ func (d *demoKeys) VolumeKeysInstalled() (bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.volume, nil
+}
+
+// blocked runs fn with the binder's shortcut dispatch suspended, when the
+// desktop is one that can bind, so a batch of registry changes cannot be
+// interrupted by a keypress. The unblock always runs. A block that fails
+// is logged and the batch goes on: the risk is the compositor's, not a
+// reason to refuse the person their keys.
+func blocked(ctx context.Context, b keyBinder, ev Events, fn func() []error) []error {
+	if !b.Supported(ctx) {
+		return nil // no desktop to bind on; the settings still hold the keys
+	}
+	if err := b.Block(ctx, true); err != nil {
+		ev.logf(LevelWarn, "could not suspend shortcuts for the change: %v", err)
+	} else {
+		defer func() {
+			if err := b.Block(ctx, false); err != nil {
+				ev.logf(LevelWarn, "could not resume shortcuts after the change: %v", err)
+			}
+		}()
+	}
+	return fn()
 }
 
 // binderFor picks the desktop for a request; a test replaces it.
@@ -171,7 +210,7 @@ func Hotkeys(ctx context.Context, req HotkeysRequest) (HotkeysResult, error) {
 	res := HotkeysResult{Supported: b.Supported(ctx), Enabled: cfg.HotkeysEnabled}
 	bound := map[string]bool{}
 	if res.Supported {
-		list, err := b.List()
+		list, err := b.List(ctx)
 		if err != nil {
 			return res, err
 		}
@@ -261,33 +300,40 @@ func SetHotkey(ctx context.Context, req SetHotkeyRequest) (HotkeysResult, error)
 	if err := config.Save(path, cfg); err != nil {
 		return HotkeysResult{}, err
 	}
-	var errs []error
 	b := binderFor(req.Request)
-	if cfg.HotkeysEnabled && b.Supported(ctx) {
-		for _, k := range unbind {
-			if _, err := b.Unbind(ctx, k); err != nil {
-				errs = append(errs, fmt.Errorf("unbind %s: %w", k, err))
-			} else {
-				req.Events.logf(LevelInfo, "%s unbound", k)
-			}
-		}
-		if h.Key != "" {
-			released, err := b.Bind(ctx, h.Key, hotkeyArgs(h))
-			for _, r := range released {
-				req.Events.logf(LevelInfo, "%s released from %s", h.Key, r)
-			}
-			if err != nil {
-				errs = append(errs, fmt.Errorf("bind %s: %w", h.Key, err))
-			} else {
-				req.Events.logf(LevelInfo, "%s runs: ototo %s", h.Key, joinArgs(hotkeyArgs(h)))
-			}
+	var errs []error
+	if cfg.HotkeysEnabled {
+		errs = blocked(ctx, b, req.Events, func() []error {
+			return applyHotkey(ctx, b, unbind, h, req.Events)
+		})
+	}
+	return finish(ctx, req.Request, errs)
+}
+
+// applyHotkey unbinds the keys the change frees and binds the new one, with
+// no block of its own: the caller holds it. Bind is skipped when the key is
+// empty (a removal).
+func applyHotkey(ctx context.Context, b keyBinder, unbind []string, h config.Hotkey, ev Events) []error {
+	var errs []error
+	for _, k := range unbind {
+		if _, err := b.Unbind(ctx, k); err != nil {
+			errs = append(errs, fmt.Errorf("unbind %s: %w", k, err))
+		} else {
+			ev.logf(LevelInfo, "%s unbound", k)
 		}
 	}
-	res, err := Hotkeys(ctx, HotkeysRequest{req.Request})
-	if err != nil {
-		errs = append(errs, err)
+	if h.Key != "" {
+		released, err := b.Bind(ctx, h.Key, hotkeyArgs(h))
+		for _, r := range released {
+			ev.logf(LevelInfo, "%s released from %s", h.Key, r)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("bind %s: %w", h.Key, err))
+		} else {
+			ev.logf(LevelInfo, "%s runs: ototo %s", h.Key, joinArgs(hotkeyArgs(h)))
+		}
 	}
-	return res, errors.Join(errs...)
+	return errs
 }
 
 // SetHotkeysEnabledRequest turns every key on or off.
@@ -297,7 +343,7 @@ type SetHotkeysEnabledRequest struct {
 }
 
 // SetHotkeysEnabled saves the switch and binds or unbinds every hotkey,
-// each one whether or not an earlier one failed, with the errors joined.
+// each one whether or not an earlier one failed, under one block.
 func SetHotkeysEnabled(ctx context.Context, req SetHotkeysEnabledRequest) (HotkeysResult, error) {
 	cfg, path, err := config.Load(req.ConfigPath)
 	if err != nil {
@@ -307,25 +353,53 @@ func SetHotkeysEnabled(ctx context.Context, req SetHotkeysEnabledRequest) (Hotke
 	if err := config.Save(path, cfg); err != nil {
 		return HotkeysResult{}, err
 	}
-	var errs []error
 	b := binderFor(req.Request)
-	if b.Supported(ctx) {
-		for _, h := range cfg.Hotkeys {
-			if req.On {
-				if _, err := b.Bind(ctx, h.Key, hotkeyArgs(h)); err != nil {
-					errs = append(errs, fmt.Errorf("bind %s: %w", h.Key, err))
-				}
-			} else if _, err := b.Unbind(ctx, h.Key); err != nil {
-				errs = append(errs, fmt.Errorf("unbind %s: %w", h.Key, err))
+	errs := blocked(ctx, b, req.Events, func() []error {
+		return applyEnabled(ctx, b, cfg, req.On, req.Events)
+	})
+	return finish(ctx, req.Request, errs)
+}
+
+// applyEnabled binds or unbinds every hotkey, with no block of its own.
+func applyEnabled(ctx context.Context, b keyBinder, cfg config.Config, on bool, ev Events) []error {
+	var errs []error
+	for _, h := range cfg.Hotkeys {
+		if on {
+			if _, err := b.Bind(ctx, h.Key, hotkeyArgs(h)); err != nil {
+				errs = append(errs, fmt.Errorf("bind %s: %w", h.Key, err))
 			}
-		}
-		if req.On {
-			req.Events.logf(LevelInfo, "%d key(s) bound", len(cfg.Hotkeys))
-		} else {
-			req.Events.logf(LevelInfo, "%d key(s) unbound and given back", len(cfg.Hotkeys))
+		} else if _, err := b.Unbind(ctx, h.Key); err != nil {
+			errs = append(errs, fmt.Errorf("unbind %s: %w", h.Key, err))
 		}
 	}
-	res, err := Hotkeys(ctx, HotkeysRequest{req.Request})
+	if on {
+		ev.logf(LevelInfo, "%d key(s) bound", len(cfg.Hotkeys))
+	} else {
+		ev.logf(LevelInfo, "%d key(s) unbound and given back", len(cfg.Hotkeys))
+	}
+	return errs
+}
+
+// applyVolume installs or removes the volume keys, with no block of its own.
+func applyVolume(ctx context.Context, b keyBinder, on bool, ev Events) []error {
+	if on {
+		if err := b.InstallVolumeKeys(ctx); err != nil {
+			return []error{fmt.Errorf("volume keys: %w", err)}
+		}
+		ev.logf(LevelInfo, "the volume keys run ototo")
+		return nil
+	}
+	if _, err := b.RemoveVolumeKeys(ctx); err != nil {
+		return []error{fmt.Errorf("volume keys: %w", err)}
+	}
+	ev.logf(LevelInfo, "the volume keys are given back")
+	return nil
+}
+
+// finish reads the state after a batch and joins the batch's errors with
+// the read's.
+func finish(ctx context.Context, req Request, errs []error) (HotkeysResult, error) {
+	res, err := Hotkeys(ctx, HotkeysRequest{req})
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -333,70 +407,51 @@ func SetHotkeysEnabled(ctx context.Context, req SetHotkeysEnabledRequest) (Hotke
 }
 
 // RestoreStockKeys is one click back to the desktop's own keys: every
-// hotkey unbound and given back, and the volume keys given back. The
-// settings keep the list.
+// hotkey unbound and given back, and the volume keys given back, in one
+// block. The settings keep the list.
 func RestoreStockKeys(ctx context.Context, req HotkeysRequest) (HotkeysResult, error) {
-	var errs []error
-	if _, err := SetHotkeysEnabled(ctx, SetHotkeysEnabledRequest{Request: req.Request, On: false}); err != nil {
-		errs = append(errs, err)
+	cfg, path, err := config.Load(req.ConfigPath)
+	if err != nil {
+		return HotkeysResult{}, err
+	}
+	cfg.HotkeysEnabled = false
+	if err := config.Save(path, cfg); err != nil {
+		return HotkeysResult{}, err
 	}
 	b := binderFor(req.Request)
-	if b.Supported(ctx) {
-		if _, err := b.RemoveVolumeKeys(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("volume keys: %w", err))
-		} else {
-			req.Events.logf(LevelInfo, "the volume keys are given back")
-		}
-	}
-	res, err := Hotkeys(ctx, req)
-	if err != nil {
-		errs = append(errs, err)
-	}
-	return res, errors.Join(errs...)
+	errs := blocked(ctx, b, req.Events, func() []error {
+		out := applyEnabled(ctx, b, cfg, false, req.Events)
+		return append(out, applyVolume(ctx, b, false, req.Events)...)
+	})
+	return finish(ctx, req.Request, errs)
 }
 
 // UseMyKeys is one click back to the person's own: every hotkey bound and
-// the volume keys taken.
+// the volume keys taken, in one block.
 func UseMyKeys(ctx context.Context, req HotkeysRequest) (HotkeysResult, error) {
-	var errs []error
-	if _, err := SetHotkeysEnabled(ctx, SetHotkeysEnabledRequest{Request: req.Request, On: true}); err != nil {
-		errs = append(errs, err)
+	cfg, path, err := config.Load(req.ConfigPath)
+	if err != nil {
+		return HotkeysResult{}, err
+	}
+	cfg.HotkeysEnabled = true
+	if err := config.Save(path, cfg); err != nil {
+		return HotkeysResult{}, err
 	}
 	b := binderFor(req.Request)
-	if b.Supported(ctx) {
-		if err := b.InstallVolumeKeys(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("volume keys: %w", err))
-		} else {
-			req.Events.logf(LevelInfo, "the volume keys run ototo")
-		}
-	}
-	res, err := Hotkeys(ctx, req)
-	if err != nil {
-		errs = append(errs, err)
-	}
-	return res, errors.Join(errs...)
+	errs := blocked(ctx, b, req.Events, func() []error {
+		out := applyEnabled(ctx, b, cfg, true, req.Events)
+		return append(out, applyVolume(ctx, b, true, req.Events)...)
+	})
+	return finish(ctx, req.Request, errs)
 }
 
 // SetVolumeKeys is the volume-keys switch on its own.
 func SetVolumeKeys(ctx context.Context, req SetHotkeysEnabledRequest) (HotkeysResult, error) {
-	var errs []error
 	b := binderFor(req.Request)
-	if req.On {
-		if err := b.InstallVolumeKeys(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("volume keys: %w", err))
-		} else {
-			req.Events.logf(LevelInfo, "the volume keys run ototo")
-		}
-	} else if _, err := b.RemoveVolumeKeys(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("volume keys: %w", err))
-	} else {
-		req.Events.logf(LevelInfo, "the volume keys are given back")
-	}
-	res, err := Hotkeys(ctx, HotkeysRequest{req.Request})
-	if err != nil {
-		errs = append(errs, err)
-	}
-	return res, errors.Join(errs...)
+	errs := blocked(ctx, b, req.Events, func() []error {
+		return applyVolume(ctx, b, req.On, req.Events)
+	})
+	return finish(ctx, req.Request, errs)
 }
 
 // ValidHotkey says whether text is a key this program can bind, for an

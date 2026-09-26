@@ -13,11 +13,13 @@ import (
 
 // fakeBinder is a desktop in memory that records what was asked of it.
 type fakeBinder struct {
-	supported bool
-	bound     map[string][]string
-	volume    bool
-	calls     []string
-	failBind  map[string]error
+	supported  bool
+	bound      map[string][]string
+	volume     bool
+	calls      []string
+	failBind   map[string]error
+	blockDepth int
+	maxDepth   int
 }
 
 func newFakeBinder(t *testing.T) *fakeBinder {
@@ -30,7 +32,23 @@ func newFakeBinder(t *testing.T) *fakeBinder {
 }
 
 func (f *fakeBinder) Supported(context.Context) bool { return f.supported }
+func (f *fakeBinder) Block(_ context.Context, blocked bool) error {
+	if blocked {
+		f.calls = append(f.calls, "block")
+		f.blockDepth++
+	} else {
+		f.blockDepth--
+		f.calls = append(f.calls, "unblock")
+	}
+	return nil
+}
 func (f *fakeBinder) Bind(_ context.Context, key string, args []string) ([]string, error) {
+	if f.blockDepth > f.maxDepth {
+		f.maxDepth = f.blockDepth
+	}
+	if f.blockDepth == 0 {
+		f.calls = append(f.calls, "UNBLOCKED bind "+key)
+	}
 	f.calls = append(f.calls, "bind "+key)
 	if err := f.failBind[key]; err != nil {
 		return nil, err
@@ -44,7 +62,7 @@ func (f *fakeBinder) Unbind(_ context.Context, key string) (bool, error) {
 	delete(f.bound, key)
 	return had, nil
 }
-func (f *fakeBinder) List() ([]desktop.Binding, error) {
+func (f *fakeBinder) List(context.Context) ([]desktop.Binding, error) {
 	out := []desktop.Binding{}
 	for k, args := range f.bound {
 		out = append(out, desktop.Binding{Entry: "bind-" + k, Key: k, Args: args, Bound: true})
@@ -188,6 +206,9 @@ func TestOneClickEachWay(t *testing.T) {
 	_, err = UseMyKeys(ctx, HotkeysRequest{w.req()})
 	require.NoError(t, err)
 	require.True(t, f.volume)
+	require.Equal(t, 0, f.blockDepth, "shortcuts were left blocked")
+	require.GreaterOrEqual(t, f.maxDepth, 1, "the batch ran without blocking shortcuts")
+	require.NotContains(t, f.calls, "UNBLOCKED bind Meta+A", "a key was bound outside the block")
 
 	res, err := RestoreStockKeys(ctx, HotkeysRequest{w.req()})
 	require.NoError(t, err)
