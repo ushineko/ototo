@@ -203,7 +203,13 @@ type SetSwitchesRequest struct {
 	LoopbackSource  *string
 	SwitchSound     *bool
 	SwitchSoundFile *string
+	// SwitchSoundDelay is seconds, SwitchSoundDelayMax at most.
+	SwitchSoundDelay *int
 }
+
+// SwitchSoundDelayMax bounds the seconds a device that just appeared gets
+// before the switch sound.
+const SwitchSoundDelayMax = 60
 
 // OSD text size bounds, in points.
 const (
@@ -249,6 +255,12 @@ func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, erro
 	}
 	if req.SwitchSoundFile != nil {
 		cfg.SwitchSoundFile = *req.SwitchSoundFile
+	}
+	if req.SwitchSoundDelay != nil {
+		if *req.SwitchSoundDelay < 0 || *req.SwitchSoundDelay > SwitchSoundDelayMax {
+			return cfg, fmt.Errorf("the sound delay is 0 to %d seconds, not %d", SwitchSoundDelayMax, *req.SwitchSoundDelay)
+		}
+		cfg.SwitchSoundDelay = *req.SwitchSoundDelay
 	}
 	if err := config.Save(path, cfg); err != nil {
 		return cfg, err

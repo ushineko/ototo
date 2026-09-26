@@ -4,12 +4,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"time"
 
 	"github.com/jfreymuth/pulse"
+	"github.com/jfreymuth/pulse/proto"
 )
 
 /*
@@ -26,28 +26,59 @@ type Sound struct {
 	Samples  []float32
 }
 
-// Chime is the built-in sound: two rising tones, a quarter of a second,
-// with fades so nothing clicks.
-func Chime() Sound {
-	const rate = 48000
-	tone := func(hz float64, d time.Duration) []float32 {
-		n := int(float64(rate) * d.Seconds())
-		out := make([]float32, n)
-		fade := rate / 100 // 10 ms
-		for i := range out {
-			v := math.Sin(2 * math.Pi * hz * float64(i) / rate)
-			env := 1.0
-			if i < fade {
-				env = float64(i) / float64(fade)
-			} else if n-i < fade {
-				env = float64(n-i) / float64(fade)
-			}
-			out[i] = float32(v * env * 0.35)
-		}
-		return out
+// WithLead is the sound with lead of silence in front of it. Silence in the
+// stream, unlike a wait before it, keeps the stream open while the sink
+// starts: a Bluetooth sink exists before the headphones render anything,
+// and a clip that drained before they did was never heard.
+func (s Sound) WithLead(lead time.Duration) Sound {
+	if lead <= 0 || s.Rate == 0 {
+		return s
 	}
-	s := append(tone(660, 110*time.Millisecond), tone(880, 140*time.Millisecond)...)
-	return Sound{Rate: rate, Channels: 1, Samples: s}
+	ch := max(s.Channels, 1)
+	n := int(lead.Seconds()*float64(s.Rate)) * ch
+	out := s
+	out.Samples = append(make([]float32, n, n+len(s.Samples)), s.Samples...)
+	return out
+}
+
+// Chime is the built-in sound: one low boop, a third of a second, the way
+// a synth bass plays a note. The tone falls from 170 Hz to 130 Hz; it
+// starts in 2 ms with its upper harmonics open, which close over the first
+// tenth of a second as a filter envelope would, while the fundamental dies
+// away more slowly. It sits below the desktop's own notification sounds,
+// which are bright, so it is not mistaken for one.
+func Chime() Sound {
+	const (
+		rate    = 48000
+		length  = 320 * time.Millisecond
+		attack  = rate * 2 / 1000
+		release = rate * 10 / 1000
+	)
+	n := int(rate * length.Seconds())
+	out := make([]float32, n)
+	phase := 0.0
+	peak := 0.0
+	for i := range out {
+		t := float64(i) / float64(n)
+		hz := 170 - 40*t
+		phase += 2 * math.Pi * hz / rate
+		bright := math.Exp(-12 * t) // the harmonics close first
+		v := math.Sin(phase) +
+			bright*(0.6*math.Sin(2*phase)+0.35*math.Sin(3*phase)+0.2*math.Sin(4*phase)+0.1*math.Sin(5*phase))
+		env := math.Exp(-4 * t)
+		if i < attack {
+			env *= float64(i) / float64(attack)
+		}
+		if n-i < release {
+			env *= float64(n-i) / float64(release)
+		}
+		out[i] = float32(v * env)
+		peak = max(peak, math.Abs(float64(out[i])))
+	}
+	for i := range out {
+		out[i] = float32(float64(out[i]) / peak * 0.45)
+	}
+	return Sound{Rate: rate, Channels: 1, Samples: out}
 }
 
 // ErrNotWAV is a file that is not 16-bit PCM WAV, which is the one format
@@ -115,12 +146,12 @@ func (s Sound) Duration() time.Duration {
 }
 
 /*
-Play plays the clip to the default output and returns when it has drained.
-server is as for Connect; a demo server plays nothing and returns at once.
-The stream is named for the desktop's mixer, so a person who sees it there
-knows what it is.
+Play plays the clip into sink, or the default output when sink is "", and
+returns when it has drained. server is as for Connect; a demo server plays
+nothing and returns at once. The stream is named for the desktop's mixer,
+so a person who sees it there knows what it is.
 */
-func Play(server string, s Sound) error {
+func Play(server, sink string, s Sound) error {
 	if IsDemo(server) || len(s.Samples) == 0 {
 		return nil
 	}
@@ -134,10 +165,17 @@ func Play(server string, s Sound) error {
 	}
 	defer c.Close()
 
+	// ended closes when the reader has handed over the last sample. The
+	// server is asked to drain only then: asked earlier, it answers once
+	// what it holds so far has played, about a second, and closing the
+	// stream on that answer drops the rest of the clip. That lost every
+	// chime placed after a second of leading silence.
 	pos := 0
+	ended := make(chan struct{})
 	reader := pulse.Float32Reader(func(out []float32) (int, error) {
 		if pos >= len(s.Samples) {
-			return 0, io.EOF
+			close(ended)
+			return 0, pulse.EndOfData
 		}
 		n := copy(out, s.Samples[pos:])
 		pos += n
@@ -147,9 +185,27 @@ func Play(server string, s Sound) error {
 		pulse.PlaybackSampleRate(s.Rate),
 		pulse.PlaybackMediaName("ototo switch sound"),
 		pulse.PlaybackLatency(0.05),
+		// A sound event, as the desktop's own notification sounds are.
+		pulse.PlaybackRawOption(func(o *proto.CreatePlaybackStream) {
+			if o.Properties == nil {
+				o.Properties = proto.PropList{}
+			}
+			o.Properties["media.role"] = proto.PropListString("event")
+		}),
 	}
 	if s.Channels == 2 {
 		popts = append(popts, pulse.PlaybackStereo)
+	}
+	// The sink is a request: WirePlumber remembers a target per application
+	// name and moves the stream there when it has one, so the sound may
+	// still ride through the default route. The route is confirmed before
+	// the sound is played, so either lands on the new device.
+	if sink != "" {
+		target, err := c.SinkByID(sink)
+		if err != nil {
+			return fmt.Errorf("find the sink %s: %w", sink, err)
+		}
+		popts = append(popts, pulse.PlaybackSink(target))
 	}
 	stream, err := c.NewPlayback(reader, popts...)
 	if err != nil {
@@ -157,11 +213,18 @@ func Play(server string, s Sound) error {
 	}
 	defer stream.Close()
 	stream.Start()
+	select {
+	case <-ended:
+	case <-time.After(s.Duration() + drainGrace):
+		return fmt.Errorf("play the sound: the server stopped asking for it after %s", s.Duration()+drainGrace)
+	}
 	stream.Drain()
-	// The reader's EOF is how the clip ends; the library keeps it as the
-	// stream's error.
-	if err := stream.Error(); err != nil && !errors.Is(err, io.EOF) {
+	if err := stream.Error(); err != nil {
 		return fmt.Errorf("play the sound: %w", err)
 	}
 	return nil
 }
+
+// drainGrace is how much longer than the clip the server may take to ask
+// for all of it before playback is given up.
+const drainGrace = 5 * time.Second

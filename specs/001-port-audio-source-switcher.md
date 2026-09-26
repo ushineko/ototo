@@ -409,6 +409,20 @@ Port (later PRs, one per requirement group):
   repository adds nothing to the desktop without D9's explicit step, and each
   step has its inverse.
 - **Query budget, migrations, shared code**: none.
+- **Found after 0.1.2, the switch sound over Bluetooth.** Three things,
+  measured on a WH-1000XM6 with timestamped logs of the program, BlueZ's
+  transport properties and the server's events: (1) the transport goes
+  active about 1.5 s after the switch and PipeWire consumes a stream at
+  rate while it is pending, so a chime played at the switch went by
+  unheard; the headphones then render nothing for a few seconds more with
+  nothing on the bus marking the moment they do, hence the configurable
+  wait, fitted to the Sonys; (2) WirePlumber remembers a target per
+  application name and moves every "ototo" stream to it (`jamesdsp_sink`
+  here), so the sink a playback asks for is a request, and the sound rides
+  the route the switch confirmed; (3) the player asked the server to drain
+  before the clip had been handed over, so it returned after about a
+  second and dropped the rest, which lost every chime placed behind
+  leading silence and made every wait look useless. (3) was the bug.
 
 ## Gaps found (fynedesygn)
 

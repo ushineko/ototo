@@ -80,14 +80,47 @@ type Switcher struct {
 	Notifier notify.Notifier
 	// Loopback is the line-in loopback (R9.3); nil uses the real commands.
 	Loopback *loopback.Loopback
-	// Player plays the switch sound; nil plays over the sound server.
-	Player func(server string, cfg config.Config) error
+	// Player plays the switch sound into sink after lead of silence; nil
+	// plays over the sound server.
+	Player func(server, sink string, lead time.Duration, cfg config.Config) error
 
 	dial func(server string) (server, error)
 
 	mu           sync.Mutex
 	jdspBroken   bool
 	lastPhysical string
+	// seen is when each sink was first listed; zero for the ones there at
+	// the first listing. A sink first seen a moment ago is fresh (leadFor).
+	seen map[string]time.Time
+}
+
+// noteSinks records the sinks listed now; the first listing is the machine
+// as found, and nothing in it is fresh. A sink that is gone is forgotten,
+// so headphones that reconnect are fresh again.
+func (s *Switcher) noteSinks(sinks []audio.Device) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	first := s.seen == nil
+	if first {
+		s.seen = map[string]time.Time{}
+	}
+	listed := map[string]bool{}
+	for _, d := range sinks {
+		listed[d.Name] = true
+		if _, ok := s.seen[d.Name]; ok {
+			continue
+		}
+		if first {
+			s.seen[d.Name] = time.Time{}
+		} else {
+			s.seen[d.Name] = time.Now()
+		}
+	}
+	for name := range s.seen {
+		if !listed[name] {
+			delete(s.seen, name)
+		}
+	}
 }
 
 // NewSwitcher is a Switcher over the real server and graph.
@@ -213,6 +246,7 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 	if err != nil {
 		return SwitchResult{}, err
 	}
+	s.noteSinks(sinks)
 	dev, ok := Resolve(list, req.Target)
 	if !ok {
 		return SwitchResult{}, fmt.Errorf("%w %q", ErrNotFound, req.Target)
@@ -244,6 +278,7 @@ func (s *Switcher) list(srv server, in devices.Inputs) ([]devices.Device, error)
 	if err != nil {
 		return nil, err
 	}
+	s.noteSinks(sinks)
 	in.Sinks, in.DefaultSink = sinks, info.DefaultSink
 	return devices.List(in), nil
 }
@@ -400,16 +435,26 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 
 	// One notification per change of hardware, so the 5 s tick that lands
 	// on the same device says nothing (R5.2). The sound follows the same
-	// rule, and plays after the switch so it comes out of the new device.
+	// rule, and plays once the route is confirmed, into the device's own
+	// sink, so it comes out of the new device and not out of a sink that
+	// is still being rewired.
 	s.mu.Lock()
 	changed := dev.Sink != s.lastPhysical
 	s.lastPhysical = dev.Sink
 	s.mu.Unlock()
 	if changed && cfg.SwitchSound {
+		s.settleRoute(ctx, srv, dev.Sink, res.ViaJamesDSP, ev)
+		server := req(srv)
+		delay, lead := s.soundTiming(dev.Sink, cfg)
 		go func() {
-			if err := s.play(req(srv), cfg); err != nil {
+			time.Sleep(delay)
+			started := time.Now()
+			ev.logf(LevelDebug, "switch sound: into %s, %s after the switch, after %s of silence", dev.Sink, delay, lead)
+			if err := s.play(server, dev.Sink, lead, cfg); err != nil {
 				ev.logf(LevelWarn, "switch sound: %v", err)
+				return
 			}
+			ev.logf(LevelDebug, "switch sound: drained after %s", time.Since(started).Round(time.Millisecond))
 		}()
 	}
 	if changed && cfg.SwitchNotifications {
@@ -427,16 +472,113 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 	return res, nil
 }
 
-// play plays the switch sound through Player, or over the sound server.
-func (s *Switcher) play(server string, cfg config.Config) error {
-	if s.Player != nil {
-		return s.Player(server, cfg)
+/*
+The switch sound and the switch it follows. A stream opened the moment the
+default sink changed lands in a sink that is still being rewired: through
+JamesDSP the filter's output is relinked by pw-link, which the graph applies
+after the command returns, and a clip played into the filter before the
+link is up plays into nothing. So the sound is played into the device's own
+sink, which needs no link, and only once the route is confirmed: the server
+reports the default this switch set and, through JamesDSP, the graph
+reports the filter linked to the device. The confirmation is polled every
+routePoll for up to routeSettle; a route that never confirms plays anyway,
+so a wrong reading costs a delay and not the sound.
+
+A sink that was just resumed needs a moment before its first samples are
+heard, and only a playing stream starts it, so the clip leads with silence
+rather than waiting: soundLead for a sink that has been there.
+
+A device that just appeared, first seen within freshFor, is another case:
+headphones that just connected have a sink a second before their Bluetooth
+transport is active, and PipeWire consumes a stream at rate while it is
+pending, so the whole clip went by unheard; and then they play a chime of
+their own, muting the stream under it. Measured on a WH-1000XM6: the
+transport went active 1.3 s after the stream started, 0.9 s after a 350 ms
+clip had drained, and the headphones rendered nothing for a few seconds
+more, with nothing on the bus to mark the moment they did. So the
+switch returns, and its sound is scheduled from the goroutine that plays
+it for the settings' delay later, with freshLead of silence in front in
+case the transport has gone idle again by then. A stream the server
+refused is tried once more after soundRetry.
+*/
+const (
+	routeSettle = 1500 * time.Millisecond
+	routePoll   = 50 * time.Millisecond
+	soundLead   = 100 * time.Millisecond
+	freshLead   = 1500 * time.Millisecond
+	freshFor    = 15 * time.Second
+	soundRetry  = 300 * time.Millisecond
+)
+
+// soundTiming is when the switch sound for sink plays: the wait before the
+// stream opens and the silence in front of the clip. A sink first seen
+// within freshFor, or never listed before now, is fresh and waits the
+// settings' delay.
+func (s *Switcher) soundTiming(sink string, cfg config.Config) (delay, lead time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.seen[sink]
+	if !ok {
+		if s.seen == nil {
+			s.seen = map[string]time.Time{}
+		}
+		t = time.Now()
+		s.seen[sink] = t
 	}
-	return PlaySwitchSound(server, cfg)
+	if !t.IsZero() && time.Since(t) < freshFor {
+		return time.Duration(cfg.SwitchSoundDelay) * time.Second, freshLead
+	}
+	return 0, soundLead
 }
 
-// PlaySwitchSound plays what the settings name: the WAV file, or the chime.
-func PlaySwitchSound(server string, cfg config.Config) error {
+// settleRoute waits for the route to sink to be confirmed, as described
+// above, and says whether it was.
+func (s *Switcher) settleRoute(ctx context.Context, srv server, sink string, viaJDSP bool, ev Events) bool {
+	want := sink
+	if viaJDSP {
+		want = devices.JamesDSPSink
+	}
+	deadline := time.Now().Add(routeSettle)
+	for {
+		ok := false
+		if info, err := srv.Server(); err == nil && info.DefaultSink == want {
+			ok = true
+			if viaJDSP {
+				target, err := s.graph().Target(ctx)
+				ok = err == nil && target == sink
+			}
+		}
+		if ok {
+			return true
+		}
+		if ctx.Err() != nil || time.Now().After(deadline) {
+			ev.logf(LevelWarn, "the route to %s did not confirm within %s; playing the switch sound anyway", sink, routeSettle)
+			return false
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(routePoll):
+		}
+	}
+}
+
+// play plays the switch sound through Player, or over the sound server,
+// and once more after soundRetry when the first try failed.
+func (s *Switcher) play(server, sink string, lead time.Duration, cfg config.Config) error {
+	play := PlaySwitchSound
+	if s.Player != nil {
+		play = s.Player
+	}
+	if err := play(server, sink, lead, cfg); err == nil {
+		return nil
+	}
+	time.Sleep(soundRetry)
+	return play(server, sink, lead, cfg)
+}
+
+// PlaySwitchSound plays what the settings name, the WAV file or the chime,
+// into sink, or the default output when sink is "", after lead of silence.
+func PlaySwitchSound(server, sink string, lead time.Duration, cfg config.Config) error {
 	sound := audio.Chime()
 	if cfg.SwitchSoundFile != "" {
 		var err error
@@ -444,7 +586,7 @@ func PlaySwitchSound(server string, cfg config.Config) error {
 			return err
 		}
 	}
-	return audio.Play(server, sound)
+	return audio.Play(server, sink, sound.WithLead(lead))
 }
 
 // req names the server a connection was made to, for a sound played beside

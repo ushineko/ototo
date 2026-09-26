@@ -181,6 +181,7 @@ func (s *Switcher) snapshot(ctx context.Context, srv server, cfg config.Config, 
 	if err != nil {
 		return snapshot{}, err
 	}
+	s.noteSinks(sinks)
 	sn := snapshot{
 		defaultSink: info.DefaultSink,
 		jdspBroken:  s.JamesDSPBroken(),

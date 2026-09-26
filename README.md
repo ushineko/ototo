@@ -228,6 +228,28 @@ window does not carry pictures of the window.
 
 ## Changelog
 
+### Unreleased
+
+- The switch sound waits for the route: it plays once the server reports
+  the new default and, through JamesDSP, once the graph reports the filter
+  linked to the new device, and it plays into the device's own sink, so it
+  is no longer lost in a sink that is still being rewired. For a device
+  that just appeared, such as headphones that just connected, the sound is
+  scheduled for later instead, "After a device connects, wait seconds" in
+  Settings, 5 by default: their Bluetooth transport is not active until a
+  second after the sink exists, a stream played meanwhile goes by unheard,
+  and headphones such as the Sony WH-1000XM6 render nothing for a few
+  seconds more, with nothing on the bus to mark the moment they do. Other
+  headphones may need more, or none; the number is fitted to the Sonys.
+- The sound plays to its end. Playback asked the server to drain before the
+  clip had been handed over, so it returned after about a second whatever
+  the length and closed the stream on the rest; nothing was lost while the
+  chime was the whole clip, and everything was once silence went in front.
+- A switch holds the indicator for 3 s, twice a key press's 1.5 s.
+- The built-in chime is a low boop, a falling tone around 150 Hz played the
+  way a synth bass plays a note, so it is not mistaken for the desktop's own
+  notification sounds, which are bright.
+
 ### 0.1.2
 
 - **A sound on a switch.** "Play a sound when the output switches" in
