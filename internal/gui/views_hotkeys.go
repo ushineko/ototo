@@ -173,6 +173,8 @@ func (u *ui) volumeKeysCard() fyne.CanvasObject {
 	return widgets.Card("Volume",
 		widgets.WithTip(keys, "Volume Up and Volume Down run ototo, which changes the volume and shows the "+
 			"indicator. What held the keys before is recorded and released; turned off, the keys go back to it."),
+		widgets.DimWrapped("With JamesDSP as your output, Plasma's own volume keys cannot drive its virtual "+
+			"sink and beep instead; keeping this on lets ototo change the real device behind the filter."),
 		widgets.DimWrapped("Keys of your own for the same two steps, for a keyboard without volume keys."),
 		keysForm(slices.Concat(
 			pair(u.keyRow("Volume up", up, upOK, func(key string) {

@@ -253,7 +253,17 @@ window does not carry pictures of the window.
   keys" puts them all back. Keys bound from the command line before this
   are adopted into the settings the first time the section reads them. On
   a desktop that is not KDE Plasma the section is a page of the commands
-  to bind yourself.
+  to bind yourself, editable and saved, with the running binary's own path.
+- **Binding a key is done under a shortcut block** so a key press cannot
+  land in KGlobalAccel while a shortcut is half registered, which crashed
+  kwin_wayland. Taking a key releases every stale holder of it, and the
+  bound state is read from the live registry.
+- **The service cache is rebuilt after writing a shortcut** (kbuildsycoca),
+  so a bound key launches at once instead of doing nothing until KDE next
+  notices the change.
+- **A volume key steps from the level ototo aims at**, not the sink's own
+  reading, so a Bluetooth headset that reports its volume back slowly and
+  in coarse steps (AirPods) no longer jumps the volume forward and back.
 
 - On a disconnect the indicator no longer names JamesDSP for a moment
   before the device the switch lands on: a floating filter is no output,

@@ -2,11 +2,20 @@
 
 **Issue**: #30
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
-(populated before the PR)
+A Hotkeys section: a key per device, keys for the volume steps, the volume
+keys switch, and one click each way between the person's keys and the
+desktop's own, saved in the settings file. Landing it surfaced three
+KGlobalAccel realities that this spec now handles: registration must run
+with global shortcuts blocked or a key press crashes kwin_wayland; a command
+shortcut is not launchable until the service cache is rebuilt; and the
+volume keys, taken from Plasma, must step from the level ototo aims at so a
+Bluetooth headset's slow, coarse volume reporting does not bounce. On a
+desktop without KDE's shortcut service the section is an editable page of the
+commands to bind by hand.
 
 ## Context
 
@@ -115,13 +124,13 @@ program cannot bind anything, and says how the person can.
 
 ## Acceptance Criteria
 
-- [ ] R1: the config carries hotkeys and the switch; a key set twice moves; bindings made before this spec are adopted once, tested with a fake applications dir.
-- [ ] R2: core operations over a fake binder, with tests for set/move/remove, all-off restoring holders in order, all-on, the two one-click operations, and errors joined and reported.
-- [ ] R3: `Bind` records what it released and `Unbind` gives it back (tested over a fake shortcuts file for the record; the bus calls exercised on this desktop); `ListBindings` parses the person's four entries; `HotkeysSupported` false without the bus.
-- [ ] R4: the section over the demo server in both states, screenshot in the gallery; the volume-keys switch is in Hotkeys and not in Settings.
-- [ ] `--desktop bind/unbind` go through core and land in the file.
-- [ ] Verified on the desktop: the four existing keys adopted and listed; a key changed, removed and put back; Restore stock gives Volume Up/Down back to the mixer and Meta+A to nothing; Use my keys puts all back; the AirPods key connects them.
-- [ ] README: the Hotkeys section, the generic commands, the changelog.
+- [x] R1: the config carries hotkeys and the switch; a key set twice moves; bindings made before this spec are adopted once, tested with a fake applications dir.
+- [x] R2: core operations over a fake binder, with tests for set/move/remove, all-off restoring holders in order, all-on, the two one-click operations, and errors joined and reported.
+- [x] R3: `Bind` records what it released and `Unbind` gives it back (tested over a fake shortcuts file for the record; the bus calls exercised on this desktop); `ListBindings` parses the person's four entries; `HotkeysSupported` false without the bus.
+- [x] R4: the section over the demo server in both states, screenshot in the gallery; the volume-keys switch is in Hotkeys and not in Settings.
+- [x] `--desktop bind/unbind` go through core and land in the file.
+- [x] Verified on the desktop: the four existing keys adopted and listed; a key changed, removed and put back; Restore stock gives Volume Up/Down back to the mixer and Meta+A to nothing; Use my keys puts all back; the AirPods key connects them.
+- [x] README: the Hotkeys section, the generic commands, the changelog.
 
 ## Risks & Assumptions
 
