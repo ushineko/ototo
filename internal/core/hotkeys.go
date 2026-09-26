@@ -25,6 +25,9 @@ type keyBinder interface {
 	// Block suspends and resumes shortcut dispatch around a batch of
 	// changes, so a keypress cannot crash the compositor mid-registration.
 	Block(ctx context.Context, blocked bool) error
+	// RefreshCache rebuilds the service cache so a newly written command
+	// shortcut can be launched by its key.
+	RefreshCache(ctx context.Context) error
 	Bind(ctx context.Context, key string, args []string) (released []string, err error)
 	Unbind(ctx context.Context, key string) (bool, error)
 	List(ctx context.Context) ([]desktop.Binding, error)
@@ -38,6 +41,9 @@ type desktopKeys struct{}
 func (desktopKeys) Supported(ctx context.Context) bool { return desktop.Supported(ctx) }
 func (desktopKeys) Block(ctx context.Context, blocked bool) error {
 	return desktop.SetShortcutsBlocked(ctx, blocked)
+}
+func (desktopKeys) RefreshCache(ctx context.Context) error {
+	return desktop.RefreshServiceCache(ctx)
 }
 func (desktopKeys) Bind(ctx context.Context, key string, args []string) ([]string, error) {
 	return desktop.Bind(ctx, key, args)
@@ -99,7 +105,8 @@ func (d *demoKeys) Supported(context.Context) bool {
 	// without KDE's global shortcut service, for the screenshot harness.
 	return os.Getenv("OTOTO_DEMO_NO_HOTKEYS") == ""
 }
-func (d *demoKeys) Block(context.Context, bool) error { return nil }
+func (d *demoKeys) Block(context.Context, bool) error  { return nil }
+func (d *demoKeys) RefreshCache(context.Context) error { return nil }
 func (d *demoKeys) Bind(_ context.Context, key string, args []string) ([]string, error) {
 	if _, err := desktop.ParseKey(key); err != nil {
 		return nil, err
@@ -162,7 +169,13 @@ func blocked(ctx context.Context, b keyBinder, ev Events, fn func() []error) []e
 			}
 		}()
 	}
-	return fn()
+	out := fn()
+	// The cache is rebuilt after the writes so the keys are launchable at
+	// once, not only after KDE next notices the directory changed.
+	if err := b.RefreshCache(ctx); err != nil {
+		ev.logf(LevelWarn, "%v", err)
+	}
+	return out
 }
 
 // binderFor picks the desktop for a request; a test replaces it.

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -200,6 +201,31 @@ func holders(text string) []Holder {
 
 func accel(conn *dbus.Conn) dbus.BusObject { return conn.Object(accelName, accelPath) }
 
+// RefreshServiceCache rebuilds KDE's service cache so kglobalaccel can find
+// and launch a command shortcut's .desktop file. Without it a shortcut is
+// registered and holds its key but the key press launches nothing, because
+// kglobalaccel resolves the entry through the cache, which a new file is not
+// in yet. It is what KDE runs itself when the applications directory changes,
+// so running it after writing or removing entries is not disruptive. Best
+// effort: a machine without kbuildsycoca is one where nothing was cached to
+// miss.
+func RefreshServiceCache(ctx context.Context) error {
+	bin := ""
+	for _, name := range []string{"kbuildsycoca6", "kbuildsycoca5"} {
+		if p, err := exec.LookPath(name); err == nil {
+			bin = p
+			break
+		}
+	}
+	if bin == "" {
+		return nil
+	}
+	if err := exec.CommandContext(ctx, bin).Run(); err != nil {
+		return fmt.Errorf("rebuild the service cache: %w", err)
+	}
+	return nil
+}
+
 // SetShortcutsBlocked suspends or resumes kglobalaccel's dispatch of every
 // global shortcut. It is held around a batch of registry changes so that a
 // keypress cannot land in processKey while a command shortcut is half
@@ -372,9 +398,13 @@ var keyDefaults = []struct {
 
 // restorePlasmaVolume gives Volume Up, Down and Mute back to kmix, their
 // stock owners, and releases every stale command shortcut still holding one
-// (a retired tool's), so each key has one owner: Plasma's.
+// (a retired tool's), so each key has one owner: Plasma's. The key is set on
+// kmix's real action id, read live, not a built one: an id with the wrong
+// friendly name registers the key to nothing and the press is an error beep,
+// not a volume change.
 func restorePlasmaVolume(ctx context.Context, conn *dbus.Conn) error {
 	apps, _ := applicationsDir()
+	actions := componentActions(ctx, conn, "kmix")
 	var errs []error
 	for _, d := range keyDefaults {
 		for _, h := range shortcutHolders(ctx, conn, d.key) {
@@ -387,13 +417,36 @@ func restorePlasmaVolume(ctx context.Context, conn *dbus.Conn) error {
 			var ok bool
 			_ = accel(conn).CallWithContext(ctx, accelIface+".unregister", 0, h, launch).Store(&ok)
 		}
+		id, ok := actions[d.action]
+		if !ok {
+			continue // kmix has no such action here; nothing to give back to
+		}
 		call := accel(conn).CallWithContext(ctx, accelIface+".setForeignShortcutKeys", 0,
-			actionID("kmix", d.action, ""), []keySeq{{Keys: []int32{d.key}}})
+			id, []keySeq{{Keys: []int32{d.key}}})
 		if call.Err != nil {
 			errs = append(errs, fmt.Errorf("give %s back to Plasma: %w", keyName(d.key), call.Err))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// componentActions reads a component's actions from kglobalaccel, keyed by
+// the action's unique name, each value the full action id (component unique,
+// action unique, and the two friendly names) that setForeignShortcutKeys
+// needs verbatim.
+func componentActions(ctx context.Context, conn *dbus.Conn, component string) map[string][]string {
+	var actions [][]string
+	if err := accel(conn).CallWithContext(ctx, accelIface+".allActionsForComponent", 0,
+		[]string{component, "", "", ""}).Store(&actions); err != nil {
+		return nil
+	}
+	out := make(map[string][]string, len(actions))
+	for _, id := range actions {
+		if len(id) >= 2 {
+			out[id[1]] = id
+		}
+	}
+	return out
 }
 
 // RemoveVolumeKeys unregisters ototo's shortcuts, removes their entries,

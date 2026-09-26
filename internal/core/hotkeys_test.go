@@ -32,6 +32,10 @@ func newFakeBinder(t *testing.T) *fakeBinder {
 }
 
 func (f *fakeBinder) Supported(context.Context) bool { return f.supported }
+func (f *fakeBinder) RefreshCache(context.Context) error {
+	f.calls = append(f.calls, "refresh")
+	return nil
+}
 func (f *fakeBinder) Block(_ context.Context, blocked bool) error {
 	if blocked {
 		f.calls = append(f.calls, "block")
