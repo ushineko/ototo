@@ -50,14 +50,6 @@ func TestExecArgumentsAreQuotedForTheDesktopEntry(t *testing.T) {
 	require.Equal(t, `"Papa\"s 100%%"`, quoteExec(`Papa"s 100%`))
 }
 
-// TestTheOldHolderOfAKeyIsFound: the entry that held Meta+A is what Bind
-// releases, and ototo's own entry for the key is not.
-func TestTheOldHolderOfAKeyIsFound(t *testing.T) {
-	text := "[services][net.local.python3.desktop]\n_launch=Meta+A\n\n[services][other.desktop]\n_launch=Meta+Z\n\n[kmix]\nmute=Meta+A,none,Mute\n"
-	require.Equal(t, []string{"net.local.python3.desktop"}, serviceHolders(text, "Meta+A"))
-	require.Empty(t, serviceHolders(text, "Meta+X"))
-}
-
 // TestBindingsAreListedFromTheEntriesAndTheShortcutsFile: an entry's key
 // comes from the shortcuts file when it has one, else from the entry's
 // name; the Exec is read back into arguments, quotes undone.

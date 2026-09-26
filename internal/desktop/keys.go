@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -36,6 +35,7 @@ are set; godbus shares one connection per process, which is that.
 // one off and the shortcuts file named the keys it had really bound.
 const (
 	keyVolumeDown int32 = 0x01000070
+	keyVolumeMute int32 = 0x01000071
 	keyVolumeUp   int32 = 0x01000072
 )
 
@@ -321,39 +321,11 @@ func register(ctx context.Context, conn *dbus.Conn, id []string, key int32) erro
 	if err := accel(conn).CallWithContext(ctx, accelIface+".setShortcutKeys", 0, id, []keySeq{{Keys: []int32{key}}}, setPresent|noAutoloading).Err; err != nil {
 		return fmt.Errorf("bind %s to %s: %w", keyName(key), id[0], err)
 	}
-	// setShortcutKeys returns the keys it granted, but returns them empty
-	// when a registration a moment ago is still being torn down, so the
-	// truth is read from who holds the key: this component, which is the
-	// bind taking; another, which is the refusal; or, briefly, no one,
-	// which is retried. Read back rather than trust the immediate answer.
-	return confirmBound(ctx, conn, id[0], key)
-}
-
-// confirmBound polls getGlobalShortcutsByKey until the key is held by
-// component, up to three seconds, and reports what holds it otherwise.
-func confirmBound(ctx context.Context, conn *dbus.Conn, component string, key int32) error {
-	deadline := time.Now().Add(3 * time.Second)
-	var other string
-	for {
-		holder, ok := shortcutHolder(ctx, conn, key)
-		switch {
-		case ok && holder == component:
-			return nil
-		case ok:
-			other = holder
-		}
-		if time.Now().After(deadline) {
-			if other != "" && other != component {
-				return fmt.Errorf("%s is held by %s; release it in System Settings and turn this on again", keyName(key), other)
-			}
-			return fmt.Errorf("%s did not bind; try again", keyName(key))
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("bind %s: %w", keyName(key), ctx.Err())
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
+	// No read-back here: the whole batch runs with dispatch blocked, and
+	// the truth is read once, unblocked, by the caller (BindingIsLive), when
+	// the registry is settled. Reading back mid-batch raced the teardown of
+	// a shortcut released a moment before and reported a false failure.
+	return nil
 }
 
 // shortcutByKey is one row of getGlobalShortcutsByKey (ssssssaiai): the
@@ -367,18 +339,61 @@ type shortcutByKey struct {
 	Keys, DefaultKeys              []int32
 }
 
-// shortcutHolder is the component that holds key now, if any.
-func shortcutHolder(ctx context.Context, conn *dbus.Conn, key int32) (string, bool) {
+// shortcutHolders are every component that holds key now. kglobalaccel can
+// list several for one key, the active one and stale registrations that
+// never let go (a retired tool's command shortcuts, above all), so a caller
+// that needs the truth checks the whole set rather than the first.
+func shortcutHolders(ctx context.Context, conn *dbus.Conn, key int32) []string {
 	var rows []shortcutByKey
 	if err := accel(conn).CallWithContext(ctx, accelIface+".getGlobalShortcutsByKey", 0, key).Store(&rows); err != nil {
-		return "", false
+		return nil
 	}
+	var out []string
 	for _, r := range rows {
 		if slices.Contains(r.Keys, key) {
-			return r.Component, true
+			out = append(out, r.Component)
 		}
 	}
-	return "", false
+	return out
+}
+
+// keyDefaults are the Plasma stock owners of the volume keys: kmix's own
+// actions. Restoring the volume keys means handing these back their keys,
+// which is what "stock" is on Plasma, rather than whatever held a key when
+// ototo took it (which, straight off the original tool, was the original).
+var keyDefaults = []struct {
+	action string
+	key    int32
+}{
+	{"increase_volume", keyVolumeUp},
+	{"decrease_volume", keyVolumeDown},
+	{"mute", keyVolumeMute},
+}
+
+// restorePlasmaVolume gives Volume Up, Down and Mute back to kmix, their
+// stock owners, and releases every stale command shortcut still holding one
+// (a retired tool's), so each key has one owner: Plasma's.
+func restorePlasmaVolume(ctx context.Context, conn *dbus.Conn) error {
+	apps, _ := applicationsDir()
+	var errs []error
+	for _, d := range keyDefaults {
+		for _, h := range shortcutHolders(ctx, conn, d.key) {
+			if h == "kmix" || !strings.HasSuffix(h, ".desktop") {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(apps, h)); err != nil {
+				continue // not a command shortcut of a local .desktop
+			}
+			var ok bool
+			_ = accel(conn).CallWithContext(ctx, accelIface+".unregister", 0, h, launch).Store(&ok)
+		}
+		call := accel(conn).CallWithContext(ctx, accelIface+".setForeignShortcutKeys", 0,
+			actionID("kmix", d.action, ""), []keySeq{{Keys: []int32{d.key}}})
+		if call.Err != nil {
+			errs = append(errs, fmt.Errorf("give %s back to Plasma: %w", keyName(d.key), call.Err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // RemoveVolumeKeys unregisters ototo's shortcuts, removes their entries,
@@ -389,20 +404,15 @@ func RemoveVolumeKeys(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	raw, err := os.ReadFile(recPath) //nolint:gosec // ototo's own config directory
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("read %s: %w", recPath, err)
-	}
-	var rec record
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return false, fmt.Errorf("parse %s: %w", recPath, err)
-	}
+	// The record's absence means ototo does not hold the keys, but restoring
+	// still runs: the knob and the media keys can be held by a retired tool
+	// with no ototo record at all, and "restore stock" must give them back
+	// to Plasma regardless.
+	_, statErr := os.Stat(recPath)
+	had := statErr == nil
 	conn, err := dbus.SessionBus()
 	if err != nil {
-		return false, fmt.Errorf("connect to the session bus: %w", err)
+		return had, fmt.Errorf("connect to the session bus: %w", err)
 	}
 	var errs []error
 	for _, file := range []string{upEntry, downEntry} {
@@ -419,23 +429,18 @@ func RemoveVolumeKeys(ctx context.Context) (bool, error) {
 			}
 		}
 	}
-	for _, h := range rec.Holders {
-		if h.Service {
-			if err := register(ctx, conn, actionID(h.Component, h.Action, h.Component), h.Key); err != nil {
-				errs = append(errs, fmt.Errorf("give back: %w", err))
-			}
-			continue
-		}
-		call := accel(conn).CallWithContext(ctx, accelIface+".setForeignShortcutKeys", 0,
-			actionID(h.Component, h.Action, ""), []keySeq{{Keys: []int32{h.Key}}})
-		if call.Err != nil {
-			errs = append(errs, fmt.Errorf("give %s back to %s: %w", keyName(h.Key), h.Component, call.Err))
-		}
+	// Volume Up, Down and Mute go back to Plasma's own kmix, which is what
+	// "stock" is: the recorded holder was whatever held the key when ototo
+	// took it, which straight off the original tool was the original, not
+	// Plasma. restorePlasmaVolume also releases any stale command shortcut
+	// still holding one, so the knob and the media keys work again.
+	if err := restorePlasmaVolume(ctx, conn); err != nil {
+		errs = append(errs, err)
 	}
 	if err := os.Remove(recPath); err != nil && !os.IsNotExist(err) {
 		errs = append(errs, fmt.Errorf("remove %s: %w", recPath, err))
 	}
-	return true, errors.Join(errs...)
+	return had, errors.Join(errs...)
 }
 
 func keyName(key int32) string {
@@ -444,6 +449,8 @@ func keyName(key int32) string {
 		return "Volume Up"
 	case keyVolumeDown:
 		return "Volume Down"
+	case keyVolumeMute:
+		return "Volume Mute"
 	default:
 		return fmt.Sprintf("key %#x", key)
 	}

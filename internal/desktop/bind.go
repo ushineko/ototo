@@ -245,16 +245,17 @@ func Bind(ctx context.Context, key string, args []string) (released []string, er
 		return nil, fmt.Errorf("write %s: %w", entry, err)
 	}
 
-	// A command shortcut holding the key is released; the shortcuts file
-	// names it by the key as the desktop writes it.
-	shortcuts, err := ShortcutsPath()
-	if err != nil {
-		return nil, err
-	}
-	text, _ := os.ReadFile(shortcuts) //nolint:gosec // the user's own config
-	for _, h := range serviceHolders(string(text), key) {
-		if h == entry || strings.HasPrefix(h, bindPrefix) {
-			continue // ototo's own; the settings file is their record
+	// Every command shortcut holding the key is released, read from the live
+	// registry rather than the shortcuts file, which lags and, after a
+	// retired tool, lists holders the file no longer shows. A native action
+	// (kmix) is left alone; a program's own keys are its to give up. Each
+	// released holder is recorded so unbinding gives it back.
+	for _, h := range shortcutHolders(ctx, conn, code) {
+		if h == entry || strings.HasPrefix(h, bindPrefix) || !strings.HasSuffix(h, ".desktop") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(apps, h)); err != nil {
+			continue // not a local command shortcut
 		}
 		var ok bool
 		if err := accel(conn).CallWithContext(ctx, accelIface+".unregister", 0, h, launch).Store(&ok); err == nil && ok {
@@ -473,8 +474,7 @@ func BindingIsLive(ctx context.Context, entry, key string) bool {
 	if err != nil {
 		return false
 	}
-	holder, ok := shortcutHolder(ctx, conn, code)
-	return ok && holder == entry
+	return slices.Contains(shortcutHolders(ctx, conn, code), entry)
 }
 
 // Supported says whether keys can be bound here: kglobalaccel answers on
@@ -489,36 +489,6 @@ func Supported(ctx context.Context) bool {
 	defer cancel()
 	var names [][]string // aas: each component is its id, friendly name, and more
 	return accel(conn).CallWithContext(ctx, accelIface+".allMainComponents", 0).Store(&names) == nil
-}
-
-// serviceHolders are the command shortcut entries whose key is key, as the
-// shortcuts file spells it.
-func serviceHolders(text, key string) []string {
-	want := strings.TrimSpace(key)
-	var out []string
-	section := ""
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if rest, ok := strings.CutPrefix(line, "[services]["); ok {
-			section = strings.TrimSuffix(rest, "]")
-			continue
-		}
-		if strings.HasPrefix(line, "[") {
-			section = ""
-			continue
-		}
-		if section == "" {
-			continue
-		}
-		if value, ok := strings.CutPrefix(line, launch+"="); ok {
-			for _, seq := range strings.Split(value, "\t") {
-				if strings.EqualFold(strings.TrimSpace(seq), want) {
-					out = append(out, section)
-				}
-			}
-		}
-	}
-	return out
 }
 
 // quoteExec quotes one Exec argument the way the desktop entry
