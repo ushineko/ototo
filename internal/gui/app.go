@@ -73,6 +73,9 @@ type ui struct {
 	status   core.StatusResult
 	statusOK bool
 	loading  bool
+	// hotkeys is the Hotkeys section's state, read on arrival.
+	hotkeys   core.HotkeysResult
+	hotkeysOK bool
 	// loopback is the line-in loopback's state, read with the status.
 	loopback loopback.State
 	// desktop is what is installed into the desktop, read with the status.
@@ -96,7 +99,7 @@ type ui struct {
 // parsing flags. A title with no builder draws nothing, so the two are kept in
 // step by TestSectionNamesNeedsNoApp rather than by memory.
 var sectionTitles = []string{
-	"Outputs", "Microphone", "Settings", "Appearance", "About",
+	"Outputs", "Microphone", "Hotkeys", "Settings", "Appearance", "About",
 }
 
 // sectionEntry is what a section is made of: a deferred icon, its builder,
@@ -121,6 +124,7 @@ func sectionBuilders() map[string]sectionEntry {
 		// started it, which would read again.
 		"Outputs":    {theme.VolumeUpIcon, (*ui).buildOutputs, (*ui).loadStatus, nil},
 		"Microphone": {theme.MediaRecordIcon, (*ui).buildMicrophone, nil, nil},
+		"Hotkeys":    {theme.ComputerIcon, (*ui).buildHotkeys, (*ui).loadHotkeys, nil},
 		"Settings":   {theme.SettingsIcon, (*ui).buildSettings, nil, nil},
 		"Appearance": {theme.ColorPaletteIcon, (*ui).buildAppearance, nil, nil},
 		"About":      {theme.HelpIcon, (*ui).buildAbout, nil, (*ui).detachAbout},

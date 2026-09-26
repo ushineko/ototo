@@ -61,6 +61,11 @@ type Config struct {
 	SwitchSound      bool   `json:"switch_sound"`
 	SwitchSoundFile  string `json:"switch_sound_file"`
 	SwitchSoundDelay int    `json:"switch_sound_delay"`
+	// Hotkeys are the keys of the person's own (spec 002): each runs one
+	// action, with a device for a connect. HotkeysEnabled says whether they
+	// are bound on this desktop; off, the list is kept and nothing is bound.
+	Hotkeys        []Hotkey `json:"hotkeys"`
+	HotkeysEnabled bool     `json:"hotkeys_enabled"`
 	// LoopbackEnabled plays the line-in source through the current output.
 	LoopbackEnabled bool `json:"loopback_enabled"`
 	// LoopbackSource is the line-in source to play, for a machine with more
@@ -73,6 +78,27 @@ type Config struct {
 // DefaultOSDTextSize is the indicator's value text size when the setting
 // is absent: large, because the indicator is read from across the room.
 const DefaultOSDTextSize = 32
+
+// Hotkey is one key of the person's own and what it runs.
+type Hotkey struct {
+	// Key as System Settings writes it: "Meta+A", "Ctrl+Alt+F5", "Meta+Num++".
+	Key string `json:"key"`
+	// Action is one of the HotkeyActions.
+	Action string `json:"action"`
+	// Device is the priority id the connect action switches to; "" for the
+	// other actions.
+	Device string `json:"device,omitempty"`
+}
+
+// The actions a hotkey can run.
+const (
+	HotkeyConnect = "connect"
+	HotkeyVolUp   = "vol-up"
+	HotkeyVolDown = "vol-down"
+)
+
+// HotkeyActions lists them.
+var HotkeyActions = []string{HotkeyConnect, HotkeyVolUp, HotkeyVolDown}
 
 // DefaultSwitchSoundDelay is the seconds a device that just appeared gets
 // before the switch sound: a little after the slowest headphones seen, a
@@ -89,6 +115,7 @@ func Default() Config {
 		SwitchNotifications: true,
 		MoveStreams:         true,
 		SwitchSoundDelay:    DefaultSwitchSoundDelay,
+		HotkeysEnabled:      true,
 	}
 }
 

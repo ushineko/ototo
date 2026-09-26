@@ -386,15 +386,9 @@ func (u *ui) desktopCard() fyne.CanvasObject {
 	rule := check("Install the indicator's window rule (KDE Plasma)", dt.IndicatorRule, func(on bool) {
 		u.setDesktop(core.SetDesktopRequest{IndicatorRule: &on})
 	})
-	keys := check("Use the volume keys for ototo (KDE Plasma)", dt.VolumeKeys, func(on bool) {
-		u.setDesktop(core.SetDesktopRequest{VolumeKeys: &on})
-	})
 	rows := []fyne.CanvasObject{
 		widgets.WithTip(autostart, "Writes one desktop entry under your autostart directory, and removes it "+
 			"when turned off."),
-		widgets.WithTip(keys, "Volume Up and Volume Down run ototo, which changes the volume and shows the "+
-			"indicator. What held the keys before is recorded and released; turned off, ototo's shortcuts are "+
-			"removed and the keys go back to it."),
 		widgets.WithTip(rule, "Writes one rule into kwinrulesrc so the indicator has no titlebar, stays above "+
 			"other windows, stays out of the taskbar and never takes the focus. Turned off, the rule is removed. "+
 			"Without it the indicator still appears, with a titlebar."),

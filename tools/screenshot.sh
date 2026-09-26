@@ -38,7 +38,7 @@ usage() {
 usage: tools/screenshot.sh [--with-dialog] [--scheme NAME] --section NAME <output.png>
        tools/screenshot.sh --all
 
-  --section NAME  which section to open on (Outputs, Appearance, About)
+  --section NAME  which section to open on (Outputs, Microphone, Hotkeys, Settings, Appearance, About)
   --scheme NAME   colour scheme for this run; not saved over the user's choice
   --with-dialog   a dialog is open: capture the desktop and crop, rather than grabbing
                   the active window (which would be the dialog on its own)
@@ -148,7 +148,12 @@ JSON
   "osd_enabled": true,
   "switch_notifications": true,
   "switch_in_osd": true,
-  "move_streams": true
+  "move_streams": true,
+  "hotkeys_enabled": true,
+  "hotkeys": [
+    {"key": "Meta+H", "action": "connect", "device": "alsa_output.usb-Example_Wireless_Headset-00.analog-stereo"},
+    {"key": "Meta+Num++", "action": "vol-up"}
+  ]
 }
 JSON
 }
@@ -268,7 +273,7 @@ if [ "$all" -eq 1 ]; then
     mkdir -p "${REPO_DIR}/assets"
     demo
     trap demo_cleanup EXIT
-    for s in Outputs Microphone Settings; do
+    for s in Outputs Microphone Hotkeys Settings; do
         low=$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')
         capture "$s" "${REPO_DIR}/assets/screenshot-${low}.png"
     done

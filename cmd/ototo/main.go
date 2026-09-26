@@ -25,6 +25,7 @@ import (
 
 	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/buildinfo"
+	"github.com/ushineko/ototo/internal/config"
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/desktop"
 	"github.com/ushineko/ototo/internal/gui"
@@ -175,7 +176,7 @@ func desktopFlag(base core.Request, verb string, rest []string) int {
 	case "uninstall":
 		on = false
 	case "bind", "unbind":
-		return bindFlag(verb, rest)
+		return bindFlag(base, verb, rest)
 	default:
 		fmt.Fprintln(os.Stderr, "ototo: --desktop takes install, uninstall, bind or unbind, not", verb)
 		return 2
@@ -195,7 +196,7 @@ person's own that runs ototo with ARGS, such as `bind Meta+A --connect
 "AirPods Pro"` or `bind Meta+Num++ --vol-up`. A command shortcut that held
 the key is released and named.
 */
-func bindFlag(verb string, rest []string) int {
+func bindFlag(base core.Request, verb string, rest []string) int {
 	if len(rest) == 0 {
 		fmt.Fprintf(os.Stderr, "ototo: --desktop %s takes a key, such as Meta+A\n", verb)
 		return 2
@@ -203,6 +204,25 @@ func bindFlag(verb string, rest []string) int {
 	key := rest[0]
 	ctx := context.Background()
 	if verb == "unbind" {
+		// The key's hotkey in the settings is removed, which unbinds it;
+		// a key bound outside the settings is unbound where it is.
+		res, err := core.Hotkeys(ctx, core.HotkeysRequest{Request: base})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ototo:", err)
+			return 1
+		}
+		for _, h := range res.Hotkeys {
+			if !strings.EqualFold(h.Key, key) {
+				continue
+			}
+			h.Key = ""
+			if _, err := core.SetHotkey(ctx, core.SetHotkeyRequest{Request: base, Hotkey: h.Hotkey}); err != nil {
+				fmt.Fprintln(os.Stderr, "ototo:", err)
+				return 1
+			}
+			fmt.Printf("%s unbound\n", key)
+			return 0
+		}
 		had, err := desktop.Unbind(ctx, key)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ototo:", err)
@@ -216,18 +236,38 @@ func bindFlag(verb string, rest []string) int {
 		return 0
 	}
 	args := rest[1:]
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "ototo: --desktop bind takes the key and what to run, such as --connect \"AirPods Pro\" or --vol-up")
+	h, ok := hotkeyOf(key, args)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "ototo: --desktop bind takes the key and one of --connect DEVICE, --vol-up, --vol-down")
 		return 2
 	}
-	released, err := desktop.Bind(ctx, key, args)
-	for _, r := range released {
-		fmt.Printf("released %s from %s\n", key, r)
-	}
+	res, err := core.SetHotkey(ctx, core.SetHotkeyRequest{Request: base, Hotkey: h})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ototo:", err)
 		return 1
 	}
+	if !res.Supported {
+		fmt.Printf("%s saved; this desktop cannot bind it, see the Hotkeys section for the command to bind\n", key)
+		return 0
+	}
+	if !res.Enabled {
+		fmt.Printf("%s saved; your keys are off, turn them on in Hotkeys\n", key)
+		return 0
+	}
 	fmt.Printf("%s runs: ototo %s\n", key, strings.Join(args, " "))
 	return 0
+}
+
+// hotkeyOf reads bind's arguments into a hotkey: --connect DEVICE,
+// --vol-up or --vol-down.
+func hotkeyOf(key string, args []string) (config.Hotkey, bool) {
+	switch {
+	case len(args) == 2 && args[0] == "--connect" && args[1] != "":
+		return config.Hotkey{Key: key, Action: config.HotkeyConnect, Device: args[1]}, true
+	case len(args) == 1 && args[0] == "--vol-up":
+		return config.Hotkey{Key: key, Action: config.HotkeyVolUp}, true
+	case len(args) == 1 && args[0] == "--vol-down":
+		return config.Hotkey{Key: key, Action: config.HotkeyVolDown}, true
+	}
+	return config.Hotkey{}, false
 }

@@ -23,11 +23,20 @@ reads "Match automatically" except "HDMI Audio - HDMI / DisplayPort", which
 reads "Example Desk Mic". A note above explains that automatic matching
 picks the input on the same device as the output.](../assets/screenshot-microphone.png)
 
+## Hotkeys
+
+![The Hotkeys section over the demo server. "Your keys and the desktop's":
+"Your keys: 2 of 2 bound", with Use my keys and Restore stock keys buttons.
+"A key per device": each example device with an entry for its key, the
+headset's set to Meta+H and bound. Volume: the volume keys switch, on, and
+entries for Volume up and Volume down of one's own, the up key set to
+Meta+Num++.](../assets/screenshot-hotkeys.png)
+
 ## Settings
 
 ![The Settings section. Switching: "Move playing audio to the new output"
 checked, and "On an automatic switch" set to "Show it in the indicator".
 Volume indicator: shown, text size 32, font "the window's font" with Choose
 and reset buttons. Headset: battery 87%, idle minutes 0. Line-in loopback:
-on, source "Example DAC Line In". Desktop: "Start ototo at login" and "Use
-the volume keys for ototo (KDE Plasma)", both off.](../assets/screenshot-settings.png)
+on, source "Example DAC Line In". Desktop: "Start ototo at login" and
+"Install the indicator's window rule (KDE Plasma)", both off.](../assets/screenshot-settings.png)
