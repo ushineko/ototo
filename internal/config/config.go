@@ -57,7 +57,7 @@ type Config struct {
 	// the built-in chime, or the WAV file SwitchSoundFile names.
 	// SwitchSoundDelay is how many seconds after a switch to a device that
 	// just appeared the sound plays: headphones that just connected take
-	// a while to render anything, a WH-1000XM6 about ten seconds.
+	// a while to render anything, a WH-1000XM6 a few seconds.
 	SwitchSound      bool   `json:"switch_sound"`
 	SwitchSoundFile  string `json:"switch_sound_file"`
 	SwitchSoundDelay int    `json:"switch_sound_delay"`
@@ -75,8 +75,9 @@ type Config struct {
 const DefaultOSDTextSize = 32
 
 // DefaultSwitchSoundDelay is the seconds a device that just appeared gets
-// before the switch sound: enough for the slowest headphones seen.
-const DefaultSwitchSoundDelay = 15
+// before the switch sound: a little after the slowest headphones seen, a
+// WH-1000XM6, start to render.
+const DefaultSwitchSoundDelay = 5
 
 // Default is the document a machine starts with.
 func Default() Config {

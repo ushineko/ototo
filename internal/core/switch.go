@@ -494,8 +494,8 @@ transport is active, and PipeWire consumes a stream at rate while it is
 pending, so the whole clip went by unheard; and then they play a chime of
 their own, muting the stream under it. Measured on a WH-1000XM6: the
 transport went active 1.3 s after the stream started, 0.9 s after a 350 ms
-clip had drained, and the headphones rendered nothing for about ten
-seconds more, with nothing on the bus to mark the moment they did. So the
+clip had drained, and the headphones rendered nothing for a few seconds
+more, with nothing on the bus to mark the moment they did. So the
 switch returns, and its sound is scheduled from the goroutine that plays
 it for the settings' delay later, with freshLead of silence in front in
 case the transport has gone idle again by then. A stream the server

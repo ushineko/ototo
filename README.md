@@ -236,10 +236,11 @@ window does not carry pictures of the window.
   is no longer lost in a sink that is still being rewired. For a device
   that just appeared, such as headphones that just connected, the sound is
   scheduled for later instead, "After a device connects, wait seconds" in
-  Settings, 15 by default: their Bluetooth transport is not active until a
+  Settings, 5 by default: their Bluetooth transport is not active until a
   second after the sink exists, a stream played meanwhile goes by unheard,
-  and headphones such as the Sony WH-1000XM6 render nothing for about ten
-  seconds more, with nothing on the bus to mark the moment they do.
+  and headphones such as the Sony WH-1000XM6 render nothing for a few
+  seconds more, with nothing on the bus to mark the moment they do. Other
+  headphones may need more, or none; the number is fitted to the Sonys.
 - The sound plays to its end. Playback asked the server to drain before the
   clip had been handed over, so it returned after about a second whatever
   the length and closed the stream on the rest; nothing was lost while the

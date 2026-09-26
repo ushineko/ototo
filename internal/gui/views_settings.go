@@ -229,7 +229,7 @@ func (u *ui) soundCard() fyne.CanvasObject {
 			widgets.FixedWidth(delay, forms.NumericWidth)),
 			"Headphones that just connected take a while before they play anything, and their own "+
 				"connect chime comes first; a sound played before that is lost. Sony WH-1000XM6 need about "+
-				"ten seconds. Press Enter to apply."),
+				"five seconds. Press Enter to apply."),
 	)
 }
 
