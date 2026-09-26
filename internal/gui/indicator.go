@@ -19,6 +19,7 @@ import (
 	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/desktop"
+	"github.com/ushineko/ototo/internal/devices"
 	"github.com/ushineko/ototo/internal/notify"
 )
 
@@ -236,6 +237,14 @@ func (u *ui) volumeChangedFor(ctx context.Context, hold time.Duration) {
 		return
 	}
 	u.events().Log(core.LevelDebug, fmt.Sprintf("volume read: %s %d%% muted=%v", res.Sink, res.Percent, res.Muted))
+	if res.Sink == devices.JamesDSPSink {
+		// The filter is floating: the device it played into just went
+		// away, and there is no output to show. The switch that follows
+		// shows the next one; without this the indicator named the filter
+		// for a moment first.
+		u.events().Log(core.LevelDebug, "indicator: JamesDSP is floating; nothing to show")
+		return
+	}
 	u.showVolumeFor(res, hold)
 }
 
@@ -254,8 +263,12 @@ func (u *ui) showVolumeFor(res core.VolumeResult, hold time.Duration) {
 	})
 }
 
-// deviceName is what the list calls a sink, else the sink's own name.
+// deviceName is what the list calls a sink, else the sink's own name; the
+// JamesDSP sink, which the list never has, is no output at all.
 func (u *ui) deviceName(sink string) string {
+	if sink == devices.JamesDSPSink {
+		return "No output"
+	}
 	for _, d := range u.status.Devices {
 		if d.Sink == sink {
 			return d.Name
