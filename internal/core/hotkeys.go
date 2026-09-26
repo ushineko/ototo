@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"sync"
 
@@ -93,7 +94,11 @@ func (d *demoKeys) match(cfg config.Config) {
 	}
 }
 
-func (d *demoKeys) Supported(context.Context) bool    { return true }
+func (d *demoKeys) Supported(context.Context) bool {
+	// OTOTO_DEMO_NO_HOTKEYS renders the section as it looks on a desktop
+	// without KDE's global shortcut service, for the screenshot harness.
+	return os.Getenv("OTOTO_DEMO_NO_HOTKEYS") == ""
+}
 func (d *demoKeys) Block(context.Context, bool) error { return nil }
 func (d *demoKeys) Bind(_ context.Context, key string, args []string) ([]string, error) {
 	if _, err := desktop.ParseKey(key); err != nil {

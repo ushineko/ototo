@@ -284,13 +284,20 @@ func TestTheHotkeysSectionDrawsTheKeysAndThePage(t *testing.T) {
 	}
 	require.Equal(t, []string{"bound", "not bound"}, states)
 
-	u.hotkeys = core.HotkeysResult{Supported: false}
+	// Unsupported: the same editable grid (keys are saved as notes), and a
+	// commands card that names each key beside its command with the binary's
+	// real path, plus the general form.
+	u.hotkeys = core.HotkeysResult{Supported: false, Enabled: true, Hotkeys: []core.HotkeyState{
+		{Hotkey: config.Hotkey{Key: "Meta+H", Action: config.HotkeyConnect, Device: "b"}},
+	}}
 	body = u.buildHotkeys()
-	require.Empty(t, fynetest.All[*widget.Entry](body), "the page has nothing to type into")
+	require.NotEmpty(t, fynetest.All[*widget.Entry](body), "the keys are still editable off KDE")
+	require.Empty(t, fynetest.All[*widget.Check](body), "there is no volume-keys switch to install off KDE")
 	text := ""
 	for _, r := range fynetest.All[*widget.RichText](body) {
 		text += r.String() + "\n"
 	}
-	require.Contains(t, text, `ototo --connect "b"`)
-	require.Contains(t, text, "ototo --vol-up")
+	require.Contains(t, text, "Meta+H:", "the saved key is not listed with its command")
+	require.Contains(t, text, `--connect "b"`)
+	require.Contains(t, text, "--vol-up")
 }

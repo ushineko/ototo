@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -36,9 +37,19 @@ func (u *ui) buildHotkeys() fyne.CanvasObject {
 	}
 	res := u.hotkeys
 	if !res.Supported {
-		return container.NewVBox(heading, u.hotkeysPage())
+		return container.NewVBox(heading, u.unsupportedNote(), u.deviceKeysCard(),
+			u.manualVolumeCard(), u.commandsCard())
 	}
 	return container.NewVBox(heading, u.everythingCard(), u.deviceKeysCard(), u.volumeKeysCard())
+}
+
+// unsupportedNote says why the keys cannot be bound here, telling apart a
+// desktop that is not KDE from KDE with its shortcut service down.
+func (u *ui) unsupportedNote() fyne.CanvasObject {
+	return widgets.Note("ototo cannot bind keys here: this is not KDE Plasma, or it is KDE but the global "+
+		"shortcut service (kglobalaccel) is not answering. On KDE, check that it is running and press Refresh. "+
+		"On another desktop, set the keys below as a note to yourself and bind the matching commands in your "+
+		"desktop's own shortcut settings.", fd.StatusWarn)
 }
 
 // loadHotkeys is the arrival hook: the keys and, when it is not there yet,
@@ -81,7 +92,9 @@ func (u *ui) hotkeyFor(action string, dev devices.Device) (core.HotkeyState, boo
 // keyRow is one row of the keys form: the label and, beside it, the key
 // entry with its state. The rows go into one form layout so the entries
 // line up in a column whatever the labels' widths. The entry commits on
-// Enter; a key the parser does not know is marked before that.
+// Enter; a key the parser does not know is marked before that. On a desktop
+// that cannot bind, the entry is a note of the key the person chose and the
+// state column is empty, the command to bind it being in its own card.
 func (u *ui) keyRow(label string, have core.HotkeyState, ok bool, commit func(key string)) (name, field fyne.CanvasObject) {
 	entry := widget.NewEntry()
 	entry.SetPlaceHolder("none")
@@ -106,7 +119,7 @@ func (u *ui) keyRow(label string, have core.HotkeyState, ok bool, commit func(ke
 	}
 	state := widget.NewLabel("")
 	switch {
-	case !ok:
+	case !ok, !u.hotkeys.Supported:
 	case !u.hotkeys.Enabled:
 		state.SetText("saved, keys are off")
 	case have.Bound:
@@ -221,27 +234,75 @@ func (u *ui) everythingCard() fyne.CanvasObject {
 
 func pair(a, b fyne.CanvasObject) []fyne.CanvasObject { return []fyne.CanvasObject{a, b} }
 
-// hotkeysPage is the section without kglobalaccel: the commands to bind by
-// hand, with the person's device ids filled in.
-func (u *ui) hotkeysPage() fyne.CanvasObject {
+// manualVolumeCard is the volume rows without the volume-keys switch, for a
+// desktop where ototo cannot take the keys: the keys are notes, saved.
+func (u *ui) manualVolumeCard() fyne.CanvasObject {
+	up, upOK := u.hotkeyFor(config.HotkeyVolUp, devices.Device{})
+	down, downOK := u.hotkeyFor(config.HotkeyVolDown, devices.Device{})
+	return widgets.Card("Volume",
+		widgets.DimWrapped("Keys of your own for the volume steps."),
+		keysForm(slices.Concat(
+			pair(u.keyRow("Volume up", up, upOK, func(key string) {
+				u.setHotkey(config.Hotkey{Key: key, Action: config.HotkeyVolUp})
+			})),
+			pair(u.keyRow("Volume down", down, downOK, func(key string) {
+				u.setHotkey(config.Hotkey{Key: key, Action: config.HotkeyVolDown})
+			})),
+		)...),
+	)
+}
+
+// commandsCard lists the commands to bind by hand, one per key the person
+// has set with the key beside it, then the general form for the rest. The
+// binary's real path is used, so the line works as pasted even when ototo
+// is not on PATH.
+func (u *ui) commandsCard() fyne.CanvasObject {
+	exe := otoExe()
 	var b strings.Builder
 	b.WriteString("```\n")
-	for _, d := range u.status.Devices {
-		fmt.Fprintf(&b, "ototo --connect %q    # %s\n", d.ID, devices.Plain(d.Name))
+	hasSaved := false
+	for _, h := range u.hotkeys.Hotkeys {
+		fmt.Fprintf(&b, "%-14s %s %s\n", h.Key+":", exe, strings.Join(hotkeyArgsFor(h), " "))
+		hasSaved = true
 	}
-	b.WriteString("ototo --vol-up\nototo --vol-down\n```\n")
+	if hasSaved {
+		b.WriteString("\n")
+	}
+	b.WriteString("# the general form, for any device or step:\n")
+	for _, d := range u.status.Devices {
+		fmt.Fprintf(&b, "%s --connect %q    # %s\n", exe, d.ID, devices.Plain(d.Name))
+	}
+	fmt.Fprintf(&b, "%s --vol-up\n%s --vol-down\n```\n", exe, exe)
 	commands := widget.NewRichTextFromMarkdown(b.String())
 	commands.Wrapping = fyne.TextWrapOff
-	return container.NewVBox(
-		widgets.Note("This desktop is not KDE Plasma, or its global shortcut service is not running, so ototo cannot "+
-			"bind keys for you.", fd.StatusWarn),
-		widgets.Card("Bind these commands yourself",
-			widgets.DimWrapped("Every desktop has a place for custom shortcuts, under keyboard settings. Give each one "+
-				"a key and one of these commands. A device id is what --connect takes; a name from Outputs works too. "+
-				"The two volume commands step the volume and show the indicator."),
-			commands,
-		),
+	return widgets.Card("Commands to bind",
+		widgets.DimWrapped("Where each desktop keeps custom shortcuts differs; look under its keyboard or "+
+			"shortcut settings. Give a shortcut one of these commands and the key you noted above. A device id "+
+			"is what --connect takes; a name from Outputs works too."),
+		commands,
 	)
+}
+
+// hotkeyArgsFor is what ototo runs for a saved hotkey, for the command list.
+func hotkeyArgsFor(h core.HotkeyState) []string {
+	switch h.Action {
+	case config.HotkeyConnect:
+		return []string{"--connect", fmt.Sprintf("%q", h.Device)}
+	case config.HotkeyVolUp:
+		return []string{"--vol-up"}
+	case config.HotkeyVolDown:
+		return []string{"--vol-down"}
+	}
+	return nil
+}
+
+// otoExe is the path to invoke ototo in a bound command: the running
+// binary's own path, else "ototo" for the person to resolve.
+func otoExe() string {
+	if p, err := os.Executable(); err == nil && p != "" {
+		return p
+	}
+	return "ototo"
 }
 
 func (u *ui) setHotkey(h config.Hotkey) {
