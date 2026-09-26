@@ -83,3 +83,15 @@ func TestPlayOnTheLiveServer(t *testing.T) {
 	require.NoError(t, Play("", "", Chime()))
 	require.NoError(t, Play(DemoPrefix+"nothing", "", Chime()), "a demo server must play nothing and succeed")
 }
+
+// TestALongClipPlaysToTheEnd: playback returns no sooner than the clip is
+// long. It once returned after about a second whatever the length, the
+// server having been asked to drain before the clip was handed over, and
+// a chime behind a second of leading silence was never heard.
+func TestALongClipPlaysToTheEnd(t *testing.T) {
+	skipWithoutServer(t)
+	clip := Sound{Rate: 48000, Channels: 1, Samples: make([]float32, 48000*2)} // 2 s of silence
+	started := time.Now()
+	require.NoError(t, Play("", "", clip))
+	require.GreaterOrEqual(t, time.Since(started), 1900*time.Millisecond, "playback returned before the clip ended")
+}

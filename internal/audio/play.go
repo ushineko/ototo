@@ -4,12 +4,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"time"
 
 	"github.com/jfreymuth/pulse"
+	"github.com/jfreymuth/pulse/proto"
 )
 
 /*
@@ -149,10 +149,17 @@ func Play(server, sink string, s Sound) error {
 	}
 	defer c.Close()
 
+	// ended closes when the reader has handed over the last sample. The
+	// server is asked to drain only then: asked earlier, it answers once
+	// what it holds so far has played, about a second, and closing the
+	// stream on that answer drops the rest of the clip. That lost every
+	// chime placed after a second of leading silence.
 	pos := 0
+	ended := make(chan struct{})
 	reader := pulse.Float32Reader(func(out []float32) (int, error) {
 		if pos >= len(s.Samples) {
-			return 0, io.EOF
+			close(ended)
+			return 0, pulse.EndOfData
 		}
 		n := copy(out, s.Samples[pos:])
 		pos += n
@@ -162,10 +169,21 @@ func Play(server, sink string, s Sound) error {
 		pulse.PlaybackSampleRate(s.Rate),
 		pulse.PlaybackMediaName("ototo switch sound"),
 		pulse.PlaybackLatency(0.05),
+		// A sound event, as the desktop's own notification sounds are.
+		pulse.PlaybackRawOption(func(o *proto.CreatePlaybackStream) {
+			if o.Properties == nil {
+				o.Properties = proto.PropList{}
+			}
+			o.Properties["media.role"] = proto.PropListString("event")
+		}),
 	}
 	if s.Channels == 2 {
 		popts = append(popts, pulse.PlaybackStereo)
 	}
+	// The sink is a request: WirePlumber remembers a target per application
+	// name and moves the stream there when it has one, so the sound may
+	// still ride through the default route. The route is confirmed before
+	// the sound is played, so either lands on the new device.
 	if sink != "" {
 		target, err := c.SinkByID(sink)
 		if err != nil {
@@ -179,11 +197,18 @@ func Play(server, sink string, s Sound) error {
 	}
 	defer stream.Close()
 	stream.Start()
+	select {
+	case <-ended:
+	case <-time.After(s.Duration() + drainGrace):
+		return fmt.Errorf("play the sound: the server stopped asking for it after %s", s.Duration()+drainGrace)
+	}
 	stream.Drain()
-	// The reader's EOF is how the clip ends; the library keeps it as the
-	// stream's error.
-	if err := stream.Error(); err != nil && !errors.Is(err, io.EOF) {
+	if err := stream.Error(); err != nil {
 		return fmt.Errorf("play the sound: %w", err)
 	}
 	return nil
 }
+
+// drainGrace is how much longer than the clip the server may take to ask
+// for all of it before playback is given up.
+const drainGrace = 5 * time.Second

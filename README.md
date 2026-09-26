@@ -240,6 +240,10 @@ window does not carry pictures of the window.
   second after the sink exists, a stream played meanwhile goes by unheard,
   and headphones such as the Sony WH-1000XM6 render nothing for about ten
   seconds more, with nothing on the bus to mark the moment they do.
+- The sound plays to its end. Playback asked the server to drain before the
+  clip had been handed over, so it returned after about a second whatever
+  the length and closed the stream on the rest; nothing was lost while the
+  chime was the whole clip, and everything was once silence went in front.
 - A switch holds the indicator for 3 s, twice a key press's 1.5 s.
 
 ### 0.1.2
