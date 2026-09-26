@@ -41,28 +41,34 @@ func (s Sound) WithLead(lead time.Duration) Sound {
 	return out
 }
 
-// Chime is the built-in sound: two rising tones, a quarter of a second,
-// with fades so nothing clicks.
+// Chime is the built-in sound: one low boop, a third of a second, a tone
+// falling from 170 Hz to 130 Hz with a touch of its octave for body, that
+// swells for 15 ms and dies away. It sits below the desktop's own
+// notification sounds, which are bright, so it is not mistaken for one.
 func Chime() Sound {
-	const rate = 48000
-	tone := func(hz float64, d time.Duration) []float32 {
-		n := int(float64(rate) * d.Seconds())
-		out := make([]float32, n)
-		fade := rate / 100 // 10 ms
-		for i := range out {
-			v := math.Sin(2 * math.Pi * hz * float64(i) / rate)
-			env := 1.0
-			if i < fade {
-				env = float64(i) / float64(fade)
-			} else if n-i < fade {
-				env = float64(n-i) / float64(fade)
-			}
-			out[i] = float32(v * env * 0.35)
+	const (
+		rate   = 48000
+		length = 320 * time.Millisecond
+		attack = rate * 15 / 1000
+	)
+	n := int(rate * length.Seconds())
+	out := make([]float32, n)
+	phase := 0.0
+	for i := range out {
+		t := float64(i) / float64(n)
+		hz := 170 - 40*t
+		phase += 2 * math.Pi * hz / rate
+		v := math.Sin(phase) + 0.25*math.Sin(2*phase)
+		env := math.Exp(-3.5 * t)
+		if i < attack {
+			env *= float64(i) / float64(attack)
 		}
-		return out
+		if n-i < attack {
+			env *= float64(n-i) / float64(attack)
+		}
+		out[i] = float32(v * env * 0.38)
 	}
-	s := append(tone(660, 110*time.Millisecond), tone(880, 140*time.Millisecond)...)
-	return Sound{Rate: rate, Channels: 1, Samples: s}
+	return Sound{Rate: rate, Channels: 1, Samples: out}
 }
 
 // ErrNotWAV is a file that is not 16-bit PCM WAV, which is the one format

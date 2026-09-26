@@ -14,7 +14,7 @@ import (
 // full scale, and starting and ending at silence.
 func TestTheChimeIsShortAndQuietAndClickFree(t *testing.T) {
 	s := Chime()
-	require.InDelta(t, 0.25, s.Duration().Seconds(), 0.01)
+	require.InDelta(t, 0.32, s.Duration().Seconds(), 0.01)
 	require.Equal(t, 1, s.Channels)
 	peak := float32(0)
 	for _, v := range s.Samples {

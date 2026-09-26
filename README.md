@@ -246,6 +246,8 @@ window does not carry pictures of the window.
   the length and closed the stream on the rest; nothing was lost while the
   chime was the whole clip, and everything was once silence went in front.
 - A switch holds the indicator for 3 s, twice a key press's 1.5 s.
+- The built-in chime is a low boop, a falling tone around 150 Hz, so it is
+  not mistaken for the desktop's own notification sounds, which are bright.
 
 ### 0.1.2
 
