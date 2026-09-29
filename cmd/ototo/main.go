@@ -133,7 +133,7 @@ func oneShot(base core.Request, connect string, volDown bool) int {
 	ctx := context.Background()
 
 	if connect != "" {
-		res, err := sw.Switch(ctx, core.SwitchRequest{Request: base, Target: connect, Manual: true})
+		res, err := sw.Switch(ctx, core.SwitchRequest{Request: base, Target: connect, Manual: true, Hotkey: true})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ototo:", err)
 			return 1

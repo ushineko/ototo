@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -41,6 +42,7 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 		u.setSwitches(core.SetSwitchesRequest{MoveStreams: &on})
 	})
 	tell := u.switchTellRow(cfg)
+	hotkey := u.hotkeyTellRow(cfg)
 	osd := check("Show the volume indicator", cfg.OSDEnabled, func(on bool) {
 		u.setSwitches(core.SetSwitchesRequest{OSDEnabled: &on})
 	})
@@ -51,11 +53,13 @@ func (u *ui) buildSettings() fyne.CanvasObject {
 			widgets.WithTip(move, "Streams already playing follow the switch. Off, they keep playing where they "+
 				"were until they restart."),
 			tell,
+			hotkey,
 		),
 		widgets.Card("Volume indicator",
 			widgets.WithTip(osd, "The small panel that appears when the volume changes. Off, the desktop's own "+
 				"indicator is all you see."),
 			u.osdSizeRow(),
+			u.osdHoldRow(),
 			u.osdFontRow(),
 		),
 		u.soundCard(),
@@ -101,6 +105,38 @@ func (u *ui) switchTellRow(cfg config.Config) fyne.CanvasObject {
 	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("On an automatic switch"), nil, sel),
 		"A notification names the new output and input. The indicator shows the new output and its volume "+
 			"for a moment. A switch that fails is always a notification, whatever is chosen.")
+}
+
+// What a hotkey's own messages do: its "Connecting..." and its failures,
+// kept as hotkey_in_osd (spec 003 R4.3). "Say nothing" is not offered: a
+// key that fails in silence is the fault spec 002 was written about.
+const (
+	hotkeyNotification = tellNotification
+	hotkeyIndicator    = tellIndicator
+)
+
+func hotkeyChoice(cfg config.Config) string {
+	if cfg.HotkeyInOSD {
+		return hotkeyIndicator
+	}
+	return hotkeyNotification
+}
+
+// hotkeyTellRow is the selector for what a key press shows while it works.
+func (u *ui) hotkeyTellRow(cfg config.Config) fyne.CanvasObject {
+	sel := widget.NewSelect([]string{hotkeyNotification, hotkeyIndicator}, nil)
+	sel.SetSelected(hotkeyChoice(cfg))
+	sel.OnChanged = func(choice string) {
+		if choice == hotkeyChoice(u.status.Config) {
+			return
+		}
+		inOSD := choice == hotkeyIndicator
+		u.setSwitches(core.SetSwitchesRequest{HotkeyInOSD: &inOSD})
+	}
+	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("On a hotkey"), nil, sel),
+		"What a key of your own says while it works: \"Connecting to ...\" for a Bluetooth device, and why a "+
+			"switch failed. The switch itself follows the row above. In the indicator a failure is gone with "+
+			"the panel; the window's events keep the line either way.")
 }
 
 // windowsFont is the chooser's entry for no font of the indicator's own.
@@ -184,6 +220,51 @@ func (u *ui) osdSizeRow() fyne.CanvasObject {
 	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Indicator text size"), nil,
 		widgets.FixedWidth(size, forms.NumericWidth)),
 		"Points. The next change of volume shows it.")
+}
+
+// osdHoldRow is how long the indicator stays: a selector of the times
+// offered, in seconds, with a value from an older file shown as it is. A
+// switch and a message are held longer than this by a fixed amount, so one
+// choice moves both.
+func (u *ui) osdHoldRow() fyne.CanvasObject {
+	current := holdLabel(u.status.Config.OSDHold())
+	options := make([]string, 0, len(core.OSDHoldTimes)+1)
+	seen := false
+	for _, ms := range core.OSDHoldTimes {
+		options = append(options, holdLabel(time.Duration(ms)*time.Millisecond))
+		seen = seen || holdLabel(time.Duration(ms)*time.Millisecond) == current
+	}
+	if !seen {
+		options = append(options, current)
+	}
+	hold := widget.NewSelect(options, nil)
+	hold.SetSelected(current)
+	hold.OnChanged = func(text string) {
+		ms, ok := holdMS(text)
+		if !ok || ms == u.status.Config.OSDHoldMS {
+			return
+		}
+		u.setSwitches(core.SetSwitchesRequest{OSDHoldMS: &ms})
+	}
+	return widgets.WithTip(container.NewBorder(nil, nil, widget.NewLabel("Indicator display time"), nil,
+		widgets.FixedWidth(hold, forms.NumericWidth)),
+		"How long the indicator stays after the last change. A switch of output, and a message from a key, "+
+			"are held a second and a half longer than this.")
+}
+
+// holdLabel writes a hold in seconds, without a trailing zero: "2.5 s".
+func holdLabel(d time.Duration) string {
+	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64) + " s"
+}
+
+// holdMS reads one back into milliseconds; false for a label that is not
+// one of the times offered.
+func holdMS(label string) (int, bool) {
+	seconds, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(label), " s"), 64)
+	if err != nil {
+		return 0, false
+	}
+	return int(seconds * 1000), true
 }
 
 /*

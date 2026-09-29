@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -42,17 +43,120 @@ func TestTheIndicatorShowsOnceForOneChange(t *testing.T) {
 }
 
 // TestASwitchHoldsTheIndicatorLonger: a show with the switch's hold is
-// still up when a key press's hold would have ended.
+// still up when a key press's hold would have ended. The holds are the
+// settings' (spec 003 R4.1), so the test sets a short one and reads both
+// back through the ui.
 func TestASwitchHoldsTheIndicatorLonger(t *testing.T) {
 	u := testUI(t)
 	u.osd = newIndicator(u.sh.App)
 	u.osd.tr.OnShow = nil
 	defer u.osd.tr.Hide()
+	u.statusOK = true
+	u.status = core.StatusResult{Config: config.Default()}
+	u.status.Config.OSDHoldMS = 600
+	require.Equal(t, 600*time.Millisecond, u.osdHold())
+	require.Equal(t, 600*time.Millisecond+config.OSDHoldExtraMS*time.Millisecond, u.osdLongHold())
 
-	u.osd.showFor(volumeSnapshot{percent: 45, device: "Headset"}, true, switchHold)
+	u.osd.showFor(volumeSnapshot{percent: 45, device: "Headset"}, true, u.osdLongHold())
 	require.True(t, u.osd.tr.Shown())
-	time.Sleep(indicatorHold + 200*time.Millisecond)
+	time.Sleep(u.osdHold() + 200*time.Millisecond)
 	require.True(t, u.osd.tr.Shown(), "the switch's show ended at the key press's hold")
+}
+
+// TestTheHoldIsTheSetting: an absent osd_hold_ms is the default, and the
+// default is longer than the library's, which was too short to read.
+func TestTheHoldIsTheSetting(t *testing.T) {
+	u := testUI(t)
+	require.Equal(t, config.DefaultOSDHoldMS*time.Millisecond, u.osdHold(), "before the first status read")
+	u.statusOK = true
+	u.status = core.StatusResult{Config: config.Config{}}
+	require.Equal(t, config.DefaultOSDHoldMS*time.Millisecond, u.osdHold(), "a file with no hold in it")
+	u.status.Config.OSDHoldMS = 4000
+	require.Equal(t, 4*time.Second, u.osdHold())
+	require.Equal(t, 5500*time.Millisecond, u.osdLongHold())
+}
+
+// TestAHotkeyMessageGoesToTheIndicatorOnlyWhenAsked: with hotkey_in_osd off
+// a key press's "Connecting..." and its failure reach the desktop; on, they
+// draw in the indicator and nothing is sent. A message from anything that is
+// not a key press is unaffected.
+func TestAHotkeyMessageGoesToTheIndicatorOnlyWhenAsked(t *testing.T) {
+	u := testUI(t)
+	u.osd = newIndicator(u.sh.App)
+	u.osd.tr.OnShow = nil
+	defer u.osd.tr.Hide()
+	rec := &notify.Recorder{}
+	type note struct {
+		text string
+		bad  bool
+	}
+	var notes []note
+	r := routingNotifier{u: u, bus: rec, note: func(text string, bad bool) {
+		notes = append(notes, note{text, bad})
+	}}
+	u.statusOK = true
+	u.status = core.StatusResult{Config: config.Default()}
+
+	connecting := notify.Notification{Kind: notify.KindConnecting, Title: "Connecting...",
+		Body: "Connecting to Headset", Hotkey: true}
+	_, _ = r.Send(connecting)
+	require.Len(t, rec.Sent, 1, "a key press's message did not reach the desktop with the setting off")
+	require.Empty(t, notes)
+
+	u.status.Config.HotkeyInOSD = true
+	_, _ = r.Send(connecting)
+	require.Len(t, rec.Sent, 1, "a message was notified although the indicator shows it")
+	require.Equal(t, []note{{"Connecting to Headset", false}}, notes)
+
+	_, _ = r.Send(notify.Notification{Kind: notify.KindFailure, Title: "Switch Failed",
+		Body: "no device matches", Hotkey: true})
+	require.Len(t, rec.Sent, 1, "a key press's failure was notified although the indicator shows it")
+	require.Equal(t, note{"no device matches", true}, notes[1], "a failure did not draw as one")
+
+	// The auto-switch's own failure is not a key press's, and is sent.
+	_, _ = r.Send(notify.Notification{Kind: notify.KindFailure, Title: "Switch Failed", Body: "no device matches"})
+	require.Len(t, rec.Sent, 2)
+	require.Len(t, notes, 2)
+
+	// A notification's body is the line, with the two-line switch body on
+	// one line; a message with no body is its title.
+	require.Equal(t, "Output: Headset Input: Mic", noteText(notify.Notification{Body: "Output: Headset\nInput: Mic"}))
+	require.Equal(t, "Connecting...", noteText(notify.Notification{Title: "Connecting..."}))
+}
+
+// TestAMessageKeepsTheLastNumberWhenTheServerDoesNotAnswer: a volume read
+// that failed costs the number, not the message (spec 003 R3.3).
+func TestAMessageKeepsTheLastNumberWhenTheServerDoesNotAnswer(t *testing.T) {
+	last := volumeSnapshot{percent: 45, muted: true, device: "Headset"}
+	read := core.VolumeResult{Percent: 70}
+	require.Equal(t, volumeSnapshot{percent: 70, note: "Connecting to Headset"},
+		noteSnapshot("Connecting to Headset", false, read, nil, last))
+	failed := noteSnapshot("no device matches", true, core.VolumeResult{}, errors.New("no server"), last)
+	require.Equal(t, volumeSnapshot{percent: 45, muted: true, note: "no device matches", bad: true}, failed)
+}
+
+// TestAMessageDrawsUnderTheMeterAndRepeats: the note takes the device line
+// over the volume the panel already shows, and the same note twice is two
+// events, because the person pressed the key twice.
+func TestAMessageDrawsUnderTheMeterAndRepeats(t *testing.T) {
+	u := testUI(t)
+	u.osd = newIndicator(u.sh.App)
+	u.osd.tr.OnShow = nil
+	defer u.osd.tr.Hide()
+
+	note := volumeSnapshot{percent: 45, device: "Headset", note: "Connecting to Headset"}
+	u.osd.show(note, true)
+	require.True(t, u.osd.tr.Shown())
+	require.Equal(t, "Connecting to Headset", u.osd.device.Text)
+	require.Equal(t, " 45 %", u.osd.value.Text, "the message replaced the volume")
+	u.osd.tr.Hide()
+	u.osd.show(note, true)
+	require.True(t, u.osd.tr.Shown(), "the same message did not show again")
+
+	u.osd.draw(volumeSnapshot{percent: 45, device: "Headset"})
+	plain := u.osd.device.Color
+	u.osd.draw(volumeSnapshot{percent: 45, note: "no device matches", bad: true})
+	require.NotEqual(t, plain, u.osd.device.Color, "a failure drew as an ordinary message")
 }
 
 // TestASwitchGoesToTheIndicatorOnlyWhenAsked: with the setting off the

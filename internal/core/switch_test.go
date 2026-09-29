@@ -626,3 +626,37 @@ func TestVolumeStepsFromTheIntendedLevelNotTheDeviceReading(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 45, res.Percent, "a stale track was not refreshed")
 }
+
+// TestAKeyPressMarksWhatItSays: a switch a hotkey asked for marks its
+// "Connecting..." and its failure, so a front end can show them where the
+// person who pressed the key is looking (spec 003 R2.3). The switch itself
+// is not marked: it follows the switch choice. Nothing a click in the
+// window starts is marked.
+func TestAKeyPressMarksWhatItSays(t *testing.T) {
+	w := newWorld(t, false)
+	w.bt = []devices.Bluetooth{{MAC: "AA:BB:CC:DD:EE:FF", Name: "AirPods Pro"}}
+	_, err := w.sw.Switch(context.Background(), SwitchRequest{Request: w.req(), Target: "airpods", Hotkey: true})
+	require.NoError(t, err)
+	require.Equal(t, "Connecting...", w.notes.Sent[0].Title)
+	require.True(t, w.notes.Sent[0].Hotkey, "a key press's connecting message was not marked")
+	require.Equal(t, "Audio Switched", w.notes.Sent[1].Title)
+	require.False(t, w.notes.Sent[1].Hotkey, "the switch itself must follow the switch choice")
+
+	w.notes.Sent = nil
+	_, err = w.sw.Switch(context.Background(), SwitchRequest{Request: w.req(), Target: "no such device", Hotkey: true})
+	require.Error(t, err)
+	require.Equal(t, "Switch Failed", w.notes.Sent[0].Title)
+	require.True(t, w.notes.Sent[0].Hotkey, "a key press's failure was not marked")
+
+	w.notes.Sent = nil
+	_, err = w.sw.Switch(context.Background(), SwitchRequest{Request: w.req(), Target: "no such device"})
+	require.Error(t, err)
+	require.False(t, w.notes.Sent[0].Hotkey, "a failure from the window was marked as a key press's")
+
+	w.notes.Sent = nil
+	w.srv.sinks = w.srv.sinks[:len(w.srv.sinks)-1] // the AirPods sink the connect added
+	_, err = w.sw.Connect(context.Background(), ConnectRequest{Request: w.req(), Target: "airpods"})
+	require.NoError(t, err)
+	require.Equal(t, "Connecting...", w.notes.Sent[0].Title)
+	require.False(t, w.notes.Sent[0].Hotkey, "a connect from the window was marked as a key press's")
+}

@@ -92,15 +92,31 @@ func TestASettingsSwitchWritesOneKey(t *testing.T) {
 	require.Len(t, checks, 5, "three settings switches and two desktop steps; the volume keys are in Hotkeys")
 	require.True(t, checks[0].Checked && checks[1].Checked)
 	selects := fynetest.All[*widget.Select](body)
-	require.Len(t, selects, 2, "the switch choice and the indicator text size")
+	require.Len(t, selects, 4, "the switch choice, the hotkey choice, the indicator text size and its display time")
 	require.NotNil(t, fynetest.FindButton(body, "Choose..."), "the indicator font chooser is missing")
 	require.True(t, fynetest.FindButton(body, "Use the window's font").Disabled(), "nothing to reset yet")
 	require.Equal(t, tellNotification, selects[0].Selected, "a notification is the default, as the original")
-	require.Equal(t, "32", selects[1].Selected)
-	selects[1].SetSelected("48")
+	require.Equal(t, hotkeyNotification, selects[1].Selected, "a key press notifies until it is asked not to")
+	require.Equal(t, "32", selects[2].Selected)
+	selects[2].SetSelected("48")
 	cfgSize, _, err := config.Load("")
 	require.NoError(t, err)
 	require.Equal(t, 48, cfgSize.OSDTextSize)
+
+	// The display time is written in milliseconds and shown in seconds.
+	require.Equal(t, "2.5 s", selects[3].Selected, "the default hold is not the one shown")
+	selects[3].SetSelected("4 s")
+	cfgHold, _, err := config.Load("")
+	require.NoError(t, err)
+	require.Equal(t, 4000, cfgHold.OSDHoldMS)
+
+	// The hotkey choice is its own key and leaves the switch choice alone.
+	selects[1].SetSelected(hotkeyIndicator)
+	cfgKey, _, err := config.Load("")
+	require.NoError(t, err)
+	require.True(t, cfgKey.HotkeyInOSD)
+	require.False(t, cfgKey.SwitchInOSD, "the hotkey choice moved the switch choice")
+	u.status.Config = cfgKey
 
 	// One choice, two keys: the indicator means notifications on and the
 	// indicator flag on; nothing means notifications off.

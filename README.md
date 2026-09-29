@@ -210,6 +210,8 @@ program is read as it is: the keys are the same.
 | `mic_links` | `{}` | Priority id to `auto`, `default` or a source name. Absent means `auto`. |
 | `arctis_idle_minutes` | `0` | Headset idle disconnect; 0 is never. |
 | `osd_enabled` | `true` | Show the volume indicator. |
+| `osd_hold_ms` | `2500` | How long the indicator stays after the last change. A switch of output, and a message from a key, are held 1500 ms longer. |
+| `hotkey_in_osd` | `false` | Show what a key of your own says while it works — "Connecting to ..." and why a switch failed — in the indicator instead of sending a desktop notification. The switch itself follows `switch_in_osd`. |
 | `switch_notifications` | `true` | Notify on an automatic switch. Failures are always reported. |
 | `loopback_enabled` | `false` | Play the line-in source through the current output. |
 | `move_streams` | `true` | Move playing audio to the new output on a switch. |
@@ -243,6 +245,22 @@ them appears in the repository. They live on a page of their own,
 window does not carry pictures of the window.
 
 ## Changelog
+
+### Unreleased
+
+- **A key of your own can speak in the indicator.** "On a hotkey" in
+  Settings sends what a key press says while it works — "Connecting to ..."
+  for a Bluetooth device, and why a switch failed — to the volume indicator
+  instead of the desktop's notification service. The message takes the
+  device line over the volume the panel already shows; a failure draws in
+  the warning colour. Off by default, and a key pressed while ototo is not
+  running still notifies, because that process has no indicator to draw in.
+  The switch at the end of the same key press follows "On an automatic
+  switch", as before.
+- **The indicator's display time is a setting.** `osd_hold_ms`, 2.5 s by
+  default rather than the 1.5 s that was hard-coded, chosen in Settings. A
+  switch of output and a message are held 1.5 s longer than that, so one
+  choice moves both.
 
 ### 0.1.3 (2026-09-25)
 

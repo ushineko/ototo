@@ -188,6 +188,11 @@ type SwitchRequest struct {
 	// Manual marks a switch the user asked for, which closes the breaker
 	// first: a person clicking a device is the reset the original offered.
 	Manual bool
+	// Hotkey marks a switch a key press asked for (spec 003 R2.2). It
+	// travels with the notifications this switch sends, so a front end can
+	// show them where the person who pressed the key is looking. A click in
+	// the window is not a hotkey.
+	Hotkey bool
 }
 
 // SwitchResult is what a switch did.
@@ -223,6 +228,7 @@ func (s *Switcher) Switch(ctx context.Context, req SwitchRequest) (SwitchResult,
 	if err != nil {
 		_, _ = s.notifier().Send(notify.Notification{
 			Kind: notify.KindFailure, Title: "Switch Failed", Body: err.Error(), Icon: notify.IconFailure,
+			Hotkey: req.Hotkey,
 		})
 	}
 	return res, err
@@ -262,7 +268,7 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 		if dev.MAC == "" {
 			return SwitchResult{}, fmt.Errorf("%w: %s", ErrNotConnected, dev.Name)
 		}
-		dev, err = s.connectAndWait(ctx, srv, in, probes, dev, req.Events)
+		dev, err = s.connectAndWait(ctx, srv, in, probes, dev, req.Hotkey, req.Events)
 		if err != nil {
 			return SwitchResult{}, err
 		}
@@ -320,11 +326,12 @@ row. "Connecting..." goes out first, because a Bluetooth connect takes
 seconds and the person who pressed the key would otherwise press it again.
 */
 func (s *Switcher) connectAndWait(ctx context.Context, srv server, in devices.Inputs, probes Probes,
-	dev devices.Device, ev Events) (devices.Device, error) {
+	dev devices.Device, hotkey bool, ev Events) (devices.Device, error) {
 	if probes.Connect == nil {
 		return dev, fmt.Errorf("%w: %s, and there is no Bluetooth adapter to connect it with", ErrNotConnected, dev.Name)
 	}
-	_, _ = s.notifier().Send(notify.Notification{Kind: notify.KindConnecting, Title: "Connecting...", Body: "Connecting to " + dev.Name})
+	_, _ = s.notifier().Send(notify.Notification{Kind: notify.KindConnecting, Title: "Connecting...",
+		Body: "Connecting to " + dev.Name, Hotkey: hotkey})
 	ev.logf(LevelInfo, "connecting %s (%s)", dev.Name, dev.MAC)
 	if err := probes.Connect(ctx, dev.MAC); err != nil {
 		return dev, fmt.Errorf("connection failed: %w", err)

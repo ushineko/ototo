@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // FileEnv names the environment variable that overrides the config file path.
@@ -47,12 +48,20 @@ type Config struct {
 	OSDTextSize int `json:"osd_text_size"`
 	// OSDFont is the indicator's font family; "" means the window's.
 	OSDFont string `json:"osd_font"`
+	// OSDHoldMS is how long the indicator stays after the last change, in
+	// milliseconds; 0 means DefaultOSDHoldMS. A switch and a message hold
+	// OSDHoldExtraMS longer, which is the relation the two fixed holds had.
+	OSDHoldMS int `json:"osd_hold_ms"`
 	// SwitchNotifications sends a desktop notification on an automatic switch.
 	// Failure notifications are sent regardless.
 	SwitchNotifications bool `json:"switch_notifications"`
 	// SwitchInOSD shows a switch in the volume indicator instead of a
 	// desktop notification.
 	SwitchInOSD bool `json:"switch_in_osd"`
+	// HotkeyInOSD shows what a hotkey's own switch says -- "Connecting..."
+	// and a failure -- in the volume indicator instead of sending a desktop
+	// notification (spec 003 D1). The switch itself follows SwitchInOSD.
+	HotkeyInOSD bool `json:"hotkey_in_osd"`
 	// SwitchSound plays a sound on the new output when the output switches:
 	// the built-in chime, or the WAV file SwitchSoundFile names.
 	// SwitchSoundDelay is how many seconds after a switch to a device that
@@ -78,6 +87,30 @@ type Config struct {
 // DefaultOSDTextSize is the indicator's value text size when the setting
 // is absent: large, because the indicator is read from across the room.
 const DefaultOSDTextSize = 32
+
+// The indicator's holds, in milliseconds (spec 003 D4). DefaultOSDHoldMS is
+// how long a change of volume stays when the setting is absent: longer than
+// the library's 1.5 s, which ended before the eye had found the panel.
+// OSDHoldExtraMS is what a switch or a message gets on top of it.
+const (
+	DefaultOSDHoldMS = 2500
+	OSDHoldExtraMS   = 1500
+)
+
+// OSDHold is the hold the settings ask for, as a duration.
+func (c Config) OSDHold() time.Duration {
+	ms := c.OSDHoldMS
+	if ms <= 0 {
+		ms = DefaultOSDHoldMS
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// OSDLongHold is OSDHold for what is worth a longer look: a switch of
+// output, or a message beside the volume.
+func (c Config) OSDLongHold() time.Duration {
+	return c.OSDHold() + OSDHoldExtraMS*time.Millisecond
+}
 
 // Hotkey is one key of the person's own and what it runs.
 type Hotkey struct {
@@ -112,6 +145,7 @@ func Default() Config {
 		MicLinks:            map[string]string{},
 		OSDEnabled:          true,
 		OSDTextSize:         DefaultOSDTextSize,
+		OSDHoldMS:           DefaultOSDHoldMS,
 		SwitchNotifications: true,
 		MoveStreams:         true,
 		SwitchSoundDelay:    DefaultSwitchSoundDelay,

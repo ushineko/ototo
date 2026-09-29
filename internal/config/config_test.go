@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -88,4 +89,20 @@ func TestAParseErrorNamesTheFile(t *testing.T) {
 func TestABareTildeComponentIsRefused(t *testing.T) {
 	require.ErrorIs(t, CheckCreatablePath("/tmp/x/~/y"), ErrTildeComponent)
 	require.NoError(t, CheckCreatablePath("/tmp/x/y"))
+}
+
+// TestTheIndicatorHoldReadsAsADuration: an absent osd_hold_ms is the
+// default, so a config.json from the PyQt6 program and from an older ototo
+// both read; a switch or a message is held the fixed amount longer.
+func TestTheIndicatorHoldReadsAsADuration(t *testing.T) {
+	require.Equal(t, DefaultOSDHoldMS*time.Millisecond, Config{}.OSDHold())
+	require.Equal(t, DefaultOSDHoldMS*time.Millisecond, Default().OSDHold())
+	require.Equal(t, 4*time.Second, Config{OSDHoldMS: 4000}.OSDHold())
+	require.Equal(t, 4*time.Second+OSDHoldExtraMS*time.Millisecond, Config{OSDHoldMS: 4000}.OSDLongHold())
+}
+
+// TestAHotkeySaysNothingOfItsOwnUntilAsked: hotkey_in_osd is off in a new
+// document, so a key press notifies as it always has.
+func TestAHotkeySaysNothingOfItsOwnUntilAsked(t *testing.T) {
+	require.False(t, Default().HotkeyInOSD)
 }
