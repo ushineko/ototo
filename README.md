@@ -261,6 +261,11 @@ window does not carry pictures of the window.
   default rather than the 1.5 s that was hard-coded, chosen in Settings. A
   switch of output and a message are held 1.5 s longer than that, so one
   choice moves both.
+- **Moving a device up or down no longer blanks the list.** Every rebuild
+  of Outputs selected the row in a table that had no size yet, and the
+  table went on drawing from where that left it: every row above the
+  selection empty. A move also rebuilt the section twice, which was the
+  flash; it now redraws the table in place and the row moves at once.
 
 ### 0.1.3 (2026-09-25)
 

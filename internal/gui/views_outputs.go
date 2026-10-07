@@ -70,20 +70,22 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 
 	upBtn := widget.NewButtonWithIcon("Move up", theme.MoveUpIcon(), func() { u.moveSelected(-1) })
 	downBtn := widget.NewButtonWithIcon("Move down", theme.MoveDownIcon(), func() { u.moveSelected(+1) })
+	// enable reads the list as it is now, not as it was built: a move
+	// reorders it in place without a rebuild.
 	enable := func() {
 		switchBtn.Disable()
 		connectBtn.Disable()
 		disconnectBtn.Disable()
 		upBtn.Disable()
 		downBtn.Disable()
-		if u.selected < 0 || u.selected >= len(res.Devices) {
+		d, ok := u.selectedDevice()
+		if !ok {
 			return
 		}
-		d := res.Devices[u.selected]
 		if u.selected > 0 {
 			upBtn.Enable()
 		}
-		if u.selected < len(res.Devices)-1 {
+		if u.selected < len(u.status.Devices)-1 {
 			downBtn.Enable()
 		}
 		if d.Online && d.Connected && !d.Default {
@@ -108,6 +110,12 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 	}
 	if u.selected >= 0 {
 		tw.Select(widget.TableCellID{Row: u.selected})
+		// Select scrolls the row into view, and this table has a renderer
+		// but no size yet, so the scroll lands past the row. When the rows
+		// then fit, Fyne's scroller resets its own offset without telling
+		// the table, and the table goes on drawing from the stale one:
+		// every row above the selection blank. A new table starts at the top.
+		tw.ScrollToTop()
 	}
 
 	auto := check("Switch automatically to the first available device", res.Config.AutoSwitch, func(on bool) {
@@ -167,22 +175,32 @@ func (u *ui) updateVolumeInPlace() {
 		u.live.mute.SetChecked(playing.Mute)
 		u.live.mute.OnChanged = changed
 	}
-	if u.live.table != nil {
-		holder := u.live.table
-		t := table.New()
-		t.Header("Device", "State", "Volume", "Id")
-		for _, d := range u.status.Devices {
-			t.Row(deviceStatus(d), deviceCells(d)...)
-		}
-		tw := t.Widget()
-		if old, ok := holder.Objects[0].(*widget.Table); ok {
-			tw.OnSelected, tw.OnUnselected = old.OnSelected, old.OnUnselected
-		}
-		holder.Objects = []fyne.CanvasObject{tw}
-		holder.Refresh()
-		if u.selected >= 0 {
-			tw.Select(widget.TableCellID{Row: u.selected})
-		}
+	u.redrawTable()
+}
+
+/*
+redrawTable swaps the table for one drawn from the list as it is now, in its
+container, keeping the handlers and the selection. The rows are fixed when a
+table is built, so a list changed in place is not on screen until this runs.
+*/
+func (u *ui) redrawTable() {
+	if u.live.table == nil {
+		return
+	}
+	holder := u.live.table
+	t := table.New()
+	t.Header("Device", "State", "Volume", "Id")
+	for _, d := range u.status.Devices {
+		t.Row(deviceStatus(d), deviceCells(d)...)
+	}
+	tw := t.Widget()
+	if old, ok := holder.Objects[0].(*widget.Table); ok {
+		tw.OnSelected, tw.OnUnselected = old.OnSelected, old.OnUnselected
+	}
+	holder.Objects = []fyne.CanvasObject{tw}
+	holder.Refresh()
+	if u.selected >= 0 {
+		tw.Select(widget.TableCellID{Row: u.selected})
 	}
 }
 
@@ -237,28 +255,51 @@ func (u *ui) setVolume(percent int, mute *bool) {
 
 // moveSelected moves the selected device one place in the order and writes
 // it. The selection follows the row.
+//
+// It does not go through the shell's Perform: the busy state rebuilds the
+// section when the work starts and when it ends, and two rebuilds a press
+// were the list flashing. Writing the order is a small file, so there is
+// nothing to show progress for; the table is redrawn in place instead.
 func (u *ui) moveSelected(delta int) {
+	if u.moving {
+		return
+	}
 	d, ok := u.selectedDevice()
 	if !ok {
 		return
 	}
 	order := currentOrder(u.status.Devices)
 	moved := core.Moved(order, d.ID, delta)
-	u.sh.Perform("Saving the order...", func(ctx context.Context) error {
+	u.moving = true
+	work := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), TickInterval)
+		defer cancel()
 		cfg, err := core.SetPriority(ctx, core.SetPriorityRequest{Request: u.request(), Order: moved})
 		fyne.Do(func() {
+			u.moving = false
 			if err != nil {
+				u.sh.Report("Saving the order", err)
 				return
 			}
-			// The list is reordered in place from what was written, so the
-			// row moves at once; the read behind it confirms.
+			// The list is reordered in place from what was written and the
+			// table redrawn from it, so the row moves at once; the read
+			// behind it confirms, and finding nothing changed it redraws
+			// nothing.
 			u.status.Config = cfg
 			u.status.Devices = reordered(u.status.Devices, moved)
 			u.selected += delta
+			u.redrawTable()
 		})
-		u.refreshQuietly()
-		return err
-	})
+		if err == nil {
+			u.refreshQuietly()
+		}
+	}
+	// Off screen (a test), inline, the way Perform runs there.
+	if !u.sh.OnScreen() {
+		work()
+		return
+	}
+	go work()
 }
 
 // reordered puts list in the order of ids, with anything not named kept
