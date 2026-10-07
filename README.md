@@ -13,7 +13,7 @@ done this job on a KDE Plasma desktop through thirteen releases, and it
 replaces it. The behaviour is that program's; the spec is
 [`specs/001`](specs/001-port-audio-source-switcher.md).
 
-**Version**: 0.1.3
+**Version**: 0.1.4
 
 [Screenshots](https://github.com/ushineko/ototo/blob/main/docs/screenshots.md)
 of the three sections, over invented devices.
@@ -246,7 +246,7 @@ window does not carry pictures of the window.
 
 ## Changelog
 
-### Unreleased
+### 0.1.4 (2026-10-06)
 
 - **A key of your own can speak in the indicator.** "On a hotkey" in
   Settings sends what a key press says while it works — "Connecting to ..."
