@@ -70,7 +70,9 @@ func (s *Switcher) Connect(ctx context.Context, req ConnectRequest) (devices.Dev
 	if dev.Online {
 		return dev, nil
 	}
-	return s.connectAndWait(ctx, srv, in, probes, dev, req.Events)
+	// A connect from the window, never a key press: its messages go where
+	// the switch choice sends them.
+	return s.connectAndWait(ctx, srv, in, probes, dev, false, req.Events)
 }
 
 // DisconnectRequest names a Bluetooth device to disconnect.
@@ -196,8 +198,10 @@ type SetSwitchesRequest struct {
 	OSDEnabled          *bool
 	OSDTextSize         *int
 	OSDFont             *string
+	OSDHoldMS           *int
 	SwitchNotifications *bool
 	SwitchInOSD         *bool
+	HotkeyInOSD         *bool
 	MoveStreams         *bool
 	// LoopbackSource picks the line-in source; "" means the first found.
 	LoopbackSource  *string
@@ -220,6 +224,16 @@ const (
 // OSDTextSizes are the sizes the window offers, in points.
 var OSDTextSizes = []int{16, 20, 24, 28, 32, 40, 48, 64}
 
+// The indicator's hold bounds, in milliseconds: long enough to be read,
+// short enough that a panel with no controls cannot sit on the screen.
+const (
+	OSDHoldMSMin = 500
+	OSDHoldMSMax = 15000
+)
+
+// OSDHoldTimes are the holds the window offers, in milliseconds.
+var OSDHoldTimes = []int{1000, 1500, 2000, 2500, 3000, 4000, 5000}
+
 // SetSwitches writes the switches that are set.
 func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, error) {
 	cfg, path, err := config.Load(req.ConfigPath)
@@ -238,11 +252,21 @@ func SetSwitches(_ context.Context, req SetSwitchesRequest) (config.Config, erro
 	if req.OSDFont != nil {
 		cfg.OSDFont = *req.OSDFont
 	}
+	if req.OSDHoldMS != nil {
+		if *req.OSDHoldMS < OSDHoldMSMin || *req.OSDHoldMS > OSDHoldMSMax {
+			return cfg, fmt.Errorf("the indicator display time is %d to %d milliseconds, not %d",
+				OSDHoldMSMin, OSDHoldMSMax, *req.OSDHoldMS)
+		}
+		cfg.OSDHoldMS = *req.OSDHoldMS
+	}
 	if req.SwitchNotifications != nil {
 		cfg.SwitchNotifications = *req.SwitchNotifications
 	}
 	if req.SwitchInOSD != nil {
 		cfg.SwitchInOSD = *req.SwitchInOSD
+	}
+	if req.HotkeyInOSD != nil {
+		cfg.HotkeyInOSD = *req.HotkeyInOSD
 	}
 	if req.MoveStreams != nil {
 		cfg.MoveStreams = *req.MoveStreams

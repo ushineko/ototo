@@ -55,6 +55,23 @@ func TestTheSettingsWritesLandInOneFile(t *testing.T) {
 	_, err = SetSwitches(ctx, SetSwitchesRequest{Request: w.req(), SwitchSoundDelay: &delay})
 	require.Error(t, err, "a delay past the bound was taken")
 
+	// The indicator's display time and what a key press says are two more
+	// keys of the same kind: bounded, and written one at a time (spec 003).
+	hold := 4000
+	cfg, err = SetSwitches(ctx, SetSwitchesRequest{Request: w.req(), OSDHoldMS: &hold})
+	require.NoError(t, err)
+	require.Equal(t, 4000, cfg.OSDHoldMS)
+	require.False(t, cfg.HotkeyInOSD, "a switch that was not set changed")
+	for _, bad := range []int{OSDHoldMSMin - 1, OSDHoldMSMax + 1} {
+		_, err = SetSwitches(ctx, SetSwitchesRequest{Request: w.req(), OSDHoldMS: &bad})
+		require.Error(t, err, "a display time outside the bounds was taken")
+	}
+	on := true
+	cfg, err = SetSwitches(ctx, SetSwitchesRequest{Request: w.req(), HotkeyInOSD: &on})
+	require.NoError(t, err)
+	require.True(t, cfg.HotkeyInOSD)
+	require.Equal(t, 4000, cfg.OSDHoldMS, "a key that was not set changed")
+
 	saved, _, err := config.Load(w.path)
 	require.NoError(t, err)
 	require.Equal(t, cfg, saved)

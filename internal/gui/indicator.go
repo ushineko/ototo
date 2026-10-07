@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -23,13 +24,12 @@ import (
 	"github.com/ushineko/ototo/internal/notify"
 )
 
-// The indicator's timing, as the original's: shown for 1.5 s after the last
-// change, and a server event is read 80 ms after it arrives so a burst of
-// changes is one read. A switch of output is worth a longer look than a step
-// of the volume, and holds the indicator for switchHold.
+// The indicator's timing. How long it stays is the osd_hold_ms setting
+// (spec 003 R4), read at every show, with a switch or a message held
+// config.OSDHoldExtraMS longer: both are worth a longer look than a step of
+// the volume. A server event is read 80 ms after it arrives so a burst of
+// changes is one read.
 const (
-	indicatorHold     = glance.DefaultHold
-	switchHold        = 3 * time.Second
 	indicatorDebounce = 80 * time.Millisecond
 	indicatorWidth    = 380
 )
@@ -78,6 +78,11 @@ type volumeSnapshot struct {
 	percent int
 	muted   bool
 	device  string
+	// note is a line of text drawn where the device name goes, over the
+	// volume the panel already shows: "Connecting to X", or why a switch
+	// failed (spec 003 D3). bad draws it as a warning.
+	note string
+	bad  bool
 }
 
 // newIndicator builds the window; it is not shown.
@@ -91,7 +96,7 @@ func newIndicator(a fyne.App) *indicator {
 	w.Window().SetIcon(appIcon())
 	in := newIndicatorBody()
 	in.win = w
-	in.tr = glance.NewTransient(w, indicatorHold)
+	in.tr = glance.NewTransient(w, config.Default().OSDHold())
 	w.Panel().Add(in.card)
 	in.size()
 	in.tr.OnShow = func() {
@@ -170,12 +175,24 @@ func (in *indicator) draw(v volumeSnapshot) {
 	case v.percent < 34:
 		icon = theme.VolumeDownIcon()
 	}
+	// A message takes the device line and, when it is a failure, the icon
+	// and the colour of that line: the panel is still the volume, and what
+	// went wrong is not read as an ordinary switch.
+	under, underColor := v.device, theme.Color(theme.ColorNameForeground)
+	if v.note != "" {
+		under = v.note
+		if v.bad {
+			underColor = widgets.StatusColor(fd.StatusBad)
+			icon = theme.ErrorIcon()
+		}
+	}
 	in.meter.Set(fraction, "", st)
 	in.size()
 	in.value.Text = caption
 	in.value.Color = widgets.StatusColor(st)
 	in.value.Refresh()
-	in.device.Text = v.device
+	in.device.Text = under
+	in.device.Color = underColor
 	in.device.Refresh()
 	in.icon.Resource = icon
 	in.icon.Refresh()
@@ -191,7 +208,9 @@ func (in *indicator) show(v volumeSnapshot, enabled bool) { in.showFor(v, enable
 
 // showFor is show with a hold of its own; zero is the indicator's usual.
 func (in *indicator) showFor(v volumeSnapshot, enabled bool, hold time.Duration) {
-	same := in.shown && v == in.last
+	// A repeated message is not a repeat: two connects in a row are two
+	// events, and the person pressed the key twice (spec 003 R3.2).
+	same := in.shown && v == in.last && v.note == ""
 	in.last, in.shown = v, true
 	if same || !enabled {
 		return
@@ -225,7 +244,23 @@ func (u *ui) watchVolume(ctx context.Context) {
 }
 
 // volumeChanged reads the playing sink's volume and shows the indicator.
-func (u *ui) volumeChanged(ctx context.Context) { u.volumeChangedFor(ctx, 0) }
+func (u *ui) volumeChanged(ctx context.Context) { u.volumeChangedFor(ctx, u.osdHold()) }
+
+// The holds the settings ask for: one for a step of the volume, one for a
+// switch or a message. Before the first status read the defaults apply.
+func (u *ui) osdHold() time.Duration {
+	if !u.statusOK {
+		return config.Default().OSDHold()
+	}
+	return u.status.Config.OSDHold()
+}
+
+func (u *ui) osdLongHold() time.Duration {
+	if !u.statusOK {
+		return config.Default().OSDLongHold()
+	}
+	return u.status.Config.OSDLongHold()
+}
 
 // volumeChangedFor is volumeChanged with a hold of its own for the show.
 func (u *ui) volumeChangedFor(ctx context.Context, hold time.Duration) {
@@ -249,7 +284,7 @@ func (u *ui) volumeChangedFor(ctx context.Context, hold time.Duration) {
 }
 
 // showVolume hops to the UI thread with a volume result.
-func (u *ui) showVolume(res core.VolumeResult) { u.showVolumeFor(res, 0) }
+func (u *ui) showVolume(res core.VolumeResult) { u.showVolumeFor(res, u.osdHold()) }
 
 // showVolumeFor is showVolume with a hold of its own for the show.
 func (u *ui) showVolumeFor(res core.VolumeResult, hold time.Duration) {
@@ -261,6 +296,41 @@ func (u *ui) showVolumeFor(res core.VolumeResult, hold time.Duration) {
 		u.showTextSize()
 		u.osd.showFor(volumeSnapshot{percent: res.Percent, muted: res.Muted, device: u.deviceName(res.Sink)}, u.osdEnabled(), hold)
 	})
+}
+
+/*
+showNote draws a line of text in the indicator over the current volume: a
+hotkey's "Connecting to X", or why its switch failed (spec 003 R3). The
+volume is read first so the panel is the one a switch would show; a read
+that fails leaves the last snapshot's number rather than losing the
+message.
+*/
+func (u *ui) showNote(text string, bad bool) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), TickInterval)
+		defer cancel()
+		res, err := u.sw.Volume(ctx, core.VolumeRequest{Request: u.request()})
+		fyne.Do(func() {
+			if u.osd == nil {
+				return
+			}
+			u.showTextSize()
+			// The last snapshot is read here rather than in the goroutine:
+			// everything the indicator holds is the UI thread's.
+			u.osd.showFor(noteSnapshot(text, bad, res, err, u.osd.last), u.osdEnabled(), u.osdLongHold())
+		})
+	}()
+}
+
+// noteSnapshot is the panel a message is drawn over: the volume just read,
+// or the last one shown when the read failed, so a sound server that did
+// not answer costs the number and not the message (spec 003 R3.3).
+func noteSnapshot(text string, bad bool, res core.VolumeResult, err error, last volumeSnapshot) volumeSnapshot {
+	snap := volumeSnapshot{note: text, bad: bad, percent: last.percent, muted: last.muted}
+	if err == nil {
+		snap.percent, snap.muted = res.Percent, res.Muted
+	}
+	return snap
 }
 
 // deviceName is what the list calls a sink, else the sink's own name; the
@@ -294,16 +364,31 @@ failure, goes to the desktop.
 type routingNotifier struct {
 	u   *ui
 	bus notify.Notifier
+	// note is where a message bound for the indicator goes; nil is the
+	// window's own, which reads the volume and draws on the UI thread.
+	note func(text string, bad bool)
 }
 
 func (r routingNotifier) Send(n notify.Notification) (uint32, error) {
+	// What a key press says goes where the person who pressed it is
+	// looking, when they have asked for that (spec 003 R2.4). The switch at
+	// the end of the same operation is not here: it follows the switch
+	// choice below, whichever way this one is set.
+	if n.Hotkey && r.u.hotkeyInOSD() {
+		show := r.note
+		if show == nil {
+			show = r.u.showNote
+		}
+		show(noteText(n), n.Kind == notify.KindFailure)
+		return 0, nil
+	}
 	if n.Kind == notify.KindSwitched && r.u.switchInOSD() {
 		// The panel with the new device's name and volume: the same show a
 		// key press gets, so nothing collides with it, held for longer. The
 		// list is read again first so the name is the new device's.
 		go func() {
 			r.u.refreshQuietly()
-			r.u.volumeChangedFor(context.Background(), switchHold)
+			r.u.volumeChangedFor(context.Background(), r.u.osdLongHold())
 		}()
 		return 0, nil
 	}
@@ -313,9 +398,24 @@ func (r routingNotifier) Send(n notify.Notification) (uint32, error) {
 	return r.bus.Send(n)
 }
 
+// noteText is the one line a notification becomes in the indicator: its
+// body, which already names the device or says what went wrong, with the
+// title for a message that has no body.
+func noteText(n notify.Notification) string {
+	if n.Body != "" {
+		return strings.ReplaceAll(n.Body, "\n", " ")
+	}
+	return n.Title
+}
+
 // switchInOSD is the setting, from the last status read.
 func (u *ui) switchInOSD() bool {
 	return u.statusOK && u.status.Config.SwitchInOSD
+}
+
+// hotkeyInOSD is the setting, from the last status read.
+func (u *ui) hotkeyInOSD() bool {
+	return u.statusOK && u.status.Config.HotkeyInOSD
 }
 
 // showTextSize passes the text size and the font settings to the indicator.

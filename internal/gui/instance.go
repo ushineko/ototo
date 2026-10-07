@@ -48,7 +48,9 @@ func (u *ui) handle(request string) string {
 		}
 		return "ok " + res.Sink + ": " + state
 	case "connect":
-		res, err := u.sw.Switch(ctx, core.SwitchRequest{Request: u.request(), Target: arg, Manual: true})
+		// Hotkey: this request came from a key press forwarded by a second
+		// invocation, so what it says can go to the indicator (spec 003).
+		res, err := u.sw.Switch(ctx, core.SwitchRequest{Request: u.request(), Target: arg, Manual: true, Hotkey: true})
 		if err != nil {
 			return "error " + err.Error()
 		}

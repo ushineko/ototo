@@ -35,8 +35,9 @@ Meta+Num++.](../assets/screenshot-hotkeys.png)
 ## Settings
 
 ![The Settings section. Switching: "Move playing audio to the new output"
-checked, and "On an automatic switch" set to "Show it in the indicator".
-Volume indicator: shown, text size 32, font "the window's font" with Choose
-and reset buttons. Headset: battery 87%, idle minutes 0. Line-in loopback:
+checked, "On an automatic switch" set to "Show it in the indicator", and "On
+a hotkey" set to "Send a desktop notification". Volume indicator: shown, text
+size 32, display time 2.5 s, font "the window's font" with Choose and reset
+buttons. Headset: battery 87%, idle minutes 0. Line-in loopback:
 on, source "Example DAC Line In". Desktop: "Start ototo at login" and
 "Install the indicator's window rule (KDE Plasma)", both off.](../assets/screenshot-settings.png)

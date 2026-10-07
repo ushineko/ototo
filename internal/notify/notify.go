@@ -52,6 +52,10 @@ type Notification struct {
 	Timeout int32
 	// Sticky keeps the notification until the person dismisses it.
 	Sticky bool
+	// Hotkey says the message is about an operation a key press started
+	// (spec 003 R2.1), so a front end can route it where the person who
+	// pressed the key is looking. The bus ignores it.
+	Hotkey bool
 }
 
 // expiry is the wire value: -1 for the desktop's default, 0 for never.
