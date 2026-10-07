@@ -32,7 +32,9 @@ func loaded(u *ui) {
 
 // TestMoveWritesTheWholeOrderAndFollowsTheRow: a device the user never
 // ranked gets a place the first time anything moves, and the selection
-// stays on the device that moved.
+// stays on the device that moved. The table on screen moves with it: the
+// list was once reordered in memory only, the read behind it found nothing
+// changed, and the table kept the old order and the old row highlighted.
 func TestMoveWritesTheWholeOrderAndFollowsTheRow(t *testing.T) {
 	u := testUI(t)
 	loaded(u)
@@ -48,6 +50,17 @@ func TestMoveWritesTheWholeOrderAndFollowsTheRow(t *testing.T) {
 	require.Equal(t, 0, u.selected)
 	require.True(t, u.statusOK, "the list was dropped after a move; it should stay and be read again behind")
 	require.Equal(t, "b", u.status.Devices[0].ID, "the row did not move at once")
+	require.Equal(t, "Headset", drawnCell(u, 0, 0), "the table still draws the old order")
+	require.True(t, up.Disabled(), "the top row can move up")
+	require.False(t, fynetest.FindButton(body, "Move down").Disabled(), "the top row cannot move down")
+}
+
+// drawnCell is the text the outputs table draws at a cell.
+func drawnCell(u *ui, row, col int) string {
+	tw := u.live.table.Objects[0].(*widget.Table)
+	cell := tw.CreateCell()
+	tw.UpdateCell(widget.TableCellID{Row: row, Col: col}, cell)
+	return cell.(*widget.Label).Text
 }
 
 // TestReorderedKeepsWhatTheOrderDoesNotName: a device the order does not
