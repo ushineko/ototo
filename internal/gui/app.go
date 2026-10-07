@@ -63,6 +63,10 @@ type ui struct {
 	// selected is the Outputs row the user picked, -1 for none. It is what
 	// enables the row actions, and it survives a rebuild.
 	selected int
+	// moving says a move is being written. A move does not go through the
+	// shell's Perform, so this is what refuses a second press until the
+	// first has landed.
+	moving bool
 
 	// Loaded from the core on a goroutine, read and written on the UI thread.
 	//

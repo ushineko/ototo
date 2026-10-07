@@ -244,6 +244,14 @@ window does not carry pictures of the window.
 
 ## Changelog
 
+### Unreleased
+
+- **Moving a device up or down no longer blanks the list.** Every rebuild
+  of Outputs selected the row in a table that had no size yet, and the
+  table went on drawing from where that left it: every row above the
+  selection empty. A move also rebuilt the section twice, which was the
+  flash; it now redraws the table in place and the row moves at once.
+
 ### 0.1.3 (2026-09-25)
 
 - **A Hotkeys section.** A key per device, keys of your own for the volume
