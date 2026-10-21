@@ -246,6 +246,16 @@ window does not carry pictures of the window.
 
 ## Changelog
 
+### Unreleased
+
+- **The indicator's window rule no longer deletes your other window rules on
+  Plasma 6.8** (#38). Ticking "Install the indicator's window rule" wrote the
+  rule over whatever rule KWin kept first and left a list that KWin 6.8 read
+  as the only rule to keep, so every other rule in `kwinrulesrc` was deleted,
+  hayami's included, and hayami's install did the same to ototo's. The box
+  also unticked itself once KWin had rewritten the file. Fixed in fynedesygn
+  0.1.107, which ototo now builds against.
+
 ### 0.1.4 (2026-10-06)
 
 - **A key of your own can speak in the indicator.** "On a hotkey" in
