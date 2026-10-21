@@ -13,7 +13,7 @@ done this job on a KDE Plasma desktop through thirteen releases, and it
 replaces it. The behaviour is that program's; the spec is
 [`specs/001`](specs/001-port-audio-source-switcher.md).
 
-**Version**: 0.1.4
+**Version**: 0.1.5
 
 [Screenshots](https://github.com/ushineko/ototo/blob/main/docs/screenshots.md)
 of the three sections, over invented devices.
@@ -246,7 +246,7 @@ window does not carry pictures of the window.
 
 ## Changelog
 
-### Unreleased
+### 0.1.5 (2026-10-20)
 
 - **The indicator's window rule no longer deletes your other window rules on
   Plasma 6.8** (#38). Ticking "Install the indicator's window rule" wrote the
