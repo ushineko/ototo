@@ -148,9 +148,13 @@ source, and the port's behaviour must match it.
   ` - <port description>` unless it is exactly `Analog Output`; append
   ` [Disconnected]` when unavailable; append ` [<battery>]` or
   ` [Disconnected]` for a sink whose name contains `Arctis Nova` or
-  `SteelSeries`.
+  `SteelSeries`. *Changed by spec 004 R1:* for a USB sink, the device's own
+  card name replaces a database product it disagrees with, and a database
+  vendor the device does not claim is left off.
 - R4.3 Offline devices: every id in `device_priority` with no live sink is a
-  row, named from the BlueZ cache for `bt:` ids, marked disconnected. A
+  row, named from the BlueZ cache for `bt:` ids, marked disconnected.
+  *Changed by spec 004 R2:* any other id is named by the name it had when
+  its sink was last seen (`device_names`), and by its id only when never seen. A
   `jamesdsp_sink` never appears in the list.
 - R4.4 The list is one list: online sinks, offline remembered devices, and
   paired Bluetooth audio devices (A2DP sink, audio source, headset,

@@ -207,6 +207,7 @@ program is read as it is: the keys are the same.
 |---|---|---|
 | `device_priority` | `[]` | The auto-switch order, highest first. `bt:<MAC>` for a Bluetooth device, the sink name for anything else. |
 | `auto_switch` | `false` | Switch to the highest-priority connected output automatically. |
+| `device_names` | `{}` | Written by ototo: the name each wired device in `device_priority` had when last connected, for its row while it is away. |
 | `mic_links` | `{}` | Priority id to `auto`, `default` or a source name. Absent means `auto`. |
 | `arctis_idle_minutes` | `0` | Headset idle disconnect; 0 is never. |
 | `osd_enabled` | `true` | Show the volume indicator. |
@@ -248,6 +249,17 @@ window does not carry pictures of the window.
 
 ### Unreleased
 
+- **A USB device is named by what it says it is** (#41). PipeWire names a
+  USB device from the USB ID database by the chip's ids, so a UGREEN BT701
+  transmitter appeared as "Cambridge Silicon Radio, Ltd Mpow HC5 Headset in
+  charging mode", and a CUBILUX CB5 carried Realtek's name. Where the
+  device's own name disagrees with the database, the row uses the device's,
+  without the chip maker. PCI devices and devices that agree are unchanged.
+- **A disconnected device keeps its name** (#42). A USB or HDMI device in
+  your order whose sink is gone was listed by its sink name
+  (`alsa_output.pci-…hdmi-stereo-extra1 [Disconnected]`). It is now listed
+  by the name it had when last connected, which ototo keeps under
+  `device_names` in `config.json`.
 - **The Outputs table fills the window, and the buttons stay on screen**
   (#43). The table was pinned at a fixed height below the cards, so the
   section was taller than the window: the page scrolled, Switch to and the

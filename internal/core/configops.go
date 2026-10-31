@@ -54,7 +54,7 @@ func (s *Switcher) Connect(ctx context.Context, req ConnectRequest) (devices.Dev
 	}
 	probes := req.probes()
 	in := devices.Inputs{
-		Priority: cfg.DevicePriority, Bluetooth: probes.bluetooth(ctx), Headset: probes.headset(ctx),
+		Priority: cfg.DevicePriority, Names: cfg.DeviceNames, Bluetooth: probes.bluetooth(ctx), Headset: probes.headset(ctx),
 	}
 	list, err := s.list(srv, in)
 	if err != nil {
@@ -96,7 +96,7 @@ func (s *Switcher) Disconnect(ctx context.Context, req DisconnectRequest) (devic
 	}
 	probes := req.probes()
 	list, err := s.list(srv, devices.Inputs{
-		Priority: cfg.DevicePriority, Bluetooth: probes.bluetooth(ctx), Headset: probes.headset(ctx),
+		Priority: cfg.DevicePriority, Names: cfg.DeviceNames, Bluetooth: probes.bluetooth(ctx), Headset: probes.headset(ctx),
 	})
 	if err != nil {
 		return devices.Device{}, err

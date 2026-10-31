@@ -35,6 +35,11 @@ type Config struct {
 	// DevicePriority is the auto-switch order, highest first: "bt:<MAC>" for
 	// a Bluetooth device, the sink name for anything else.
 	DevicePriority []string `json:"device_priority"`
+	// DeviceNames is the name each non-Bluetooth id in DevicePriority had the
+	// last time its sink was seen, so the row for it while it is away says
+	// what it is rather than its sink name (spec 004 R2). Bluetooth ids are
+	// named by the adapter instead.
+	DeviceNames map[string]string `json:"device_names"`
 	// AutoSwitch turns the priority auto-switch on.
 	AutoSwitch bool `json:"auto_switch"`
 	// ArctisIdleMinutes is the headset's idle disconnect, 0 for never, else 1..90.
@@ -142,6 +147,7 @@ const DefaultSwitchSoundDelay = 5
 func Default() Config {
 	return Config{
 		DevicePriority:      []string{},
+		DeviceNames:         map[string]string{},
 		MicLinks:            map[string]string{},
 		OSDEnabled:          true,
 		OSDTextSize:         DefaultOSDTextSize,
@@ -207,6 +213,9 @@ func Load(path string) (Config, string, error) {
 	}
 	if cfg.MicLinks == nil {
 		cfg.MicLinks = map[string]string{}
+	}
+	if cfg.DeviceNames == nil {
+		cfg.DeviceNames = map[string]string{}
 	}
 	return cfg, resolved, nil
 }
