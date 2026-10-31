@@ -246,6 +246,15 @@ window does not carry pictures of the window.
 
 ## Changelog
 
+### Unreleased
+
+- **The Outputs table fills the window, and the buttons stay on screen**
+  (#43). The table was pinned at a fixed height below the cards, so the
+  section was taller than the window: the page scrolled, Switch to and the
+  other buttons could scroll away, and the table's scrollbar counted rows
+  below the window's edge. The table now takes the height left below the
+  controls, down to about four rows.
+
 ### 0.1.5 (2026-10-20)
 
 - **The indicator's window rule no longer deletes your other window rules on

@@ -19,9 +19,12 @@ import (
 	"github.com/ushineko/ototo/internal/devices"
 )
 
-// outputsTableHeight keeps the section still while a person reads it: a table
-// takes all the space it receives.
-const outputsTableHeight float32 = 360
+// outputsTableHeight is the table's minimum: the header and about four rows
+// at the default text size (spec 005 R2). The table takes the height the
+// window leaves below the controls, so this is only what it keeps in a short
+// window, small enough that the section fits a normal one and the page never
+// scrolls the controls away.
+const outputsTableHeight float32 = 170
 
 /*
 liveOutputs are the widgets of the Outputs section that a volume change
@@ -39,8 +42,9 @@ type liveOutputs struct {
 buildOutputs is the device list (R10.1, first half): every device in priority
 order, the playing one marked, with the actions that act on the selected row.
 
-The actions sit above the table and stay in position; the table is a fixed
-height with its own scrollbar. A row action starts disabled and the
+The actions sit above the table and stay in position; the table fills the
+height below them with its own scrollbar, the design system's shape for a
+section built around one table (spec 005). A row action starts disabled and the
 selection enables it, as the design system asks, and the builder is the
 one place that knows why each button is enabled.
 */
@@ -123,7 +127,7 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 	})
 	u.sh.Gate(switchBtn, connectBtn, disconnectBtn, upBtn, downBtn)
 
-	return container.NewVBox(
+	top := container.NewVBox(
 		heading,
 		widgets.Card("Sound server",
 			widgets.FactRow("Server", res.Server.Name+" "+res.Server.Version, fd.StatusGood),
@@ -140,8 +144,8 @@ func (u *ui) buildOutputs() fyne.CanvasObject {
 			widgets.Sep(), upBtn, downBtn),
 		widgets.WithTip(auto, "Every five seconds, the highest device in your order that can play becomes the "+
 			"output. Move devices up and down to change what wins."),
-		widgets.FixedHeight(u.live.table, outputsTableHeight),
 	)
+	return container.NewBorder(top, nil, nil, nil, widgets.FixedHeight(u.live.table, outputsTableHeight))
 }
 
 // deviceTable builds the table from the list and keeps it in a container
