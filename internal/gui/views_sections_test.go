@@ -1,9 +1,13 @@
 package gui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
 	"github.com/stretchr/testify/require"
 	"github.com/ushineko/fynedesygn/fynetest"
@@ -329,4 +333,37 @@ func TestTheHotkeysSectionDrawsTheKeysAndThePage(t *testing.T) {
 	require.Contains(t, text, "Meta+H:", "the saved key is not listed with its command")
 	require.Contains(t, text, `--connect "b"`)
 	require.Contains(t, text, "--vol-up")
+}
+
+// TestTheOutputsTableFillsTheWindowBelowItsControls (spec 005): the section
+// was a column with the table pinned at 360, so a window shorter than the
+// column scrolled the page, carried the buttons off-screen, and left the
+// table's scrollbar describing rows below the window edge. The table now
+// takes the height the window leaves, and the controls stay on screen.
+func TestTheOutputsTableFillsTheWindowBelowItsControls(t *testing.T) {
+	u := testUI(t)
+	loaded(u)
+	for i := range 20 {
+		u.status.Devices = append(u.status.Devices, devices.Device{ID: fmt.Sprintf("x%d", i), Name: "More", Online: true, Connected: true})
+	}
+	body := u.buildOutputs()
+	win := test.NewWindow(container.NewVScroll(body)) // as the shell hosts a section
+	t.Cleanup(win.Close)
+	win.SetPadded(false)
+
+	tableHeight := func(windowHeight float32) float32 {
+		win.Resize(fyne.NewSize(900, windowHeight))
+		require.LessOrEqual(t, body.MinSize().Height, windowHeight, "the section does not fit and the page scrolls")
+		table := u.live.table
+		bottom := fyne.CurrentApp().Driver().AbsolutePositionForObject(table).Y + table.Size().Height
+		require.LessOrEqual(t, bottom, windowHeight+0.5, "the table runs past the bottom of the window")
+		for _, label := range []string{"Switch to", "Connect", "Disconnect", "Move up", "Move down"} {
+			btn := fynetest.FindButton(body, label)
+			y := fyne.CurrentApp().Driver().AbsolutePositionForObject(btn).Y + btn.Size().Height
+			require.LessOrEqualf(t, y, windowHeight, "%s is off-screen", label)
+		}
+		return table.Size().Height
+	}
+	short, tall := tableHeight(640), tableHeight(900)
+	require.InDelta(t, 260, tall-short, 0.5, "the table did not take the height the window gave")
 }
