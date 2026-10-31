@@ -3,7 +3,9 @@ package core
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
+	"slices"
 
 	"github.com/ushineko/ototo/internal/audio"
 	"github.com/ushineko/ototo/internal/buildinfo"
@@ -78,6 +80,7 @@ func Status(ctx context.Context, req StatusRequest) (StatusResult, error) {
 	probes := req.probes()
 	in := devices.Inputs{
 		Priority:  cfg.DevicePriority,
+		Names:     cfg.DeviceNames,
 		Bluetooth: probes.bluetooth(ctx),
 		Headset:   probes.headset(ctx),
 	}
@@ -116,6 +119,12 @@ func Status(ctx context.Context, req StatusRequest) (StatusResult, error) {
 	}
 	in.Sinks = sinks
 	res.Devices = devices.List(in)
+	if names, changed := rememberedNames(cfg, res.Devices); changed {
+		res.Config.DeviceNames = names
+		if err := saveNames(path, names); err != nil {
+			req.Events.logf(LevelWarn, "remembering device names: %v", err)
+		}
+	}
 
 	sources, err := client.Sources()
 	if err != nil {
@@ -128,4 +137,38 @@ func Status(ctx context.Context, req StatusRequest) (StatusResult, error) {
 	}
 	req.Events.logf(LevelDebug, "%d outputs, %d inputs from %s %s", len(sinks), len(sources), srv.Name, srv.Version)
 	return res, nil
+}
+
+/*
+rememberedNames is spec 004 D6: the names to keep for the devices in the
+order, given the list as it is now. A live device that is not Bluetooth
+takes the name it has now; an away one keeps what was stored; an id that has
+left the order is dropped. changed is false when that is what is stored
+already, which on a steady machine is every time.
+*/
+func rememberedNames(cfg config.Config, list []devices.Device) (map[string]string, bool) {
+	names := make(map[string]string, len(cfg.DevicePriority))
+	for _, id := range cfg.DevicePriority {
+		if name, ok := cfg.DeviceNames[id]; ok {
+			names[id] = name
+		}
+	}
+	for _, d := range list {
+		if d.Online && d.MAC == "" && d.Label != "" && slices.Contains(cfg.DevicePriority, d.ID) {
+			names[d.ID] = d.Label
+		}
+	}
+	return names, !maps.Equal(names, cfg.DeviceNames)
+}
+
+// saveNames writes device_names into the settings as they are on disk now,
+// not as Status read them, so a change another operation saved in between
+// is kept.
+func saveNames(path string, names map[string]string) error {
+	cfg, _, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	cfg.DeviceNames = names
+	return config.Save(path, cfg)
 }

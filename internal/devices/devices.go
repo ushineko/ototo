@@ -17,6 +17,7 @@ package devices
 import (
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/ushineko/ototo/internal/audio"
 )
@@ -58,6 +59,9 @@ type Inputs struct {
 	// adapter or the cache has not been read.
 	Bluetooth []Bluetooth
 	Headset   Headset
+	// Names is config.device_names: the name each non-Bluetooth id had the
+	// last time its sink was seen (spec 004 R2), for naming it while away.
+	Names map[string]string
 }
 
 // Device is one row of the list.
@@ -69,6 +73,10 @@ type Device struct {
 	// as the original did: "Arctis Nova Pro Wireless [87%]",
 	// "Speakers - Line Out", "AirPods [Disconnected]".
 	Name string
+	// Label is Name without its state suffixes: the name and the port,
+	// "Speakers - Line Out". It is what is remembered for the device while
+	// its sink is gone (spec 004 R2.1); empty for a device with no sink.
+	Label string
 	// Sink is the sink name; empty for a device with no sink right now.
 	Sink string
 	// Online means a sink exists. Connected means it can play: a sink whose
@@ -131,7 +139,10 @@ func DisplayName(sink audio.Device, aliases map[string]string) string {
 		if product == "" {
 			product = props["device.model"]
 		}
-		if vendor != "" && product != "" {
+		if props["device.bus"] == "usb" {
+			name = ownUSBName(props, vendor, product)
+		}
+		if name == "" && vendor != "" && product != "" {
 			name = vendor + " " + product
 		}
 	}
@@ -145,6 +156,71 @@ func DisplayName(sink audio.Device, aliases map[string]string) string {
 	return Plain(name)
 }
 
+/*
+ownUSBName is spec 004 D1-D3. PipeWire names a USB device from the usb.ids
+database by its vendor and product ids, and a device built on another
+company's chip reports that chip's ids: a UGREEN transmitter becomes an Mpow
+headset made by CSR. The device's own strings are in the ALSA card: the card
+name is its product, and the long card name is its manufacturer and product
+before " at usb-...". Where the two disagree, the device is believed: the
+product becomes the card name, and the vendor is dropped, since a database
+vendor the device does not claim is the chip maker. With no card name there
+is nothing to compare, the result is empty, and R4.2 goes on.
+*/
+func ownUSBName(props map[string]string, vendor, product string) string {
+	card := firstOf(props, "alsa.card_name", "api.alsa.card.name")
+	if card == "" {
+		return ""
+	}
+	if !sameName(product, card) {
+		product = card
+	}
+	if long := firstOf(props, "alsa.long_card_name", "api.alsa.card.longname"); long != "" {
+		long, _, _ = strings.Cut(long, " at ")
+		maker, ok := strings.CutSuffix(long, card)
+		// A long name that does not end in the card name, or names no
+		// maker, is nothing to compare with, and the vendor stands.
+		if maker = strings.TrimSpace(maker); ok && maker != "" && !sameName(vendor, maker) {
+			vendor = ""
+		}
+	}
+	if vendor == "" {
+		return product
+	}
+	return vendor + " " + product
+}
+
+// firstOf is the first non-empty property of those named.
+func firstOf(props map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(props[k]); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// sameName says two names are the same thing: compared over letters and
+// digits, case folded, one contains the other. Containment, because ALSA
+// cuts a card name at 31 characters and the database has the longer form.
+func sameName(a, b string) bool {
+	a, b = letters(a), letters(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return strings.Contains(a, b) || strings.Contains(b, a)
+}
+
+func letters(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // isHeadset says whether a display name is the SteelSeries headset the
 // original knows how to ask about.
 func isHeadset(name string) bool {
@@ -155,6 +231,7 @@ func isHeadset(name string) bool {
 // whether it can play.
 func describe(sink audio.Device, in Inputs, aliases map[string]string) Device {
 	name := DisplayName(sink, aliases)
+	label := name
 	connected := true
 
 	if isHeadset(name) {
@@ -177,6 +254,7 @@ func describe(sink audio.Device, in Inputs, aliases map[string]string) Device {
 			}
 			if desc != "Analog Output" {
 				name += " - " + desc
+				label += " - " + desc
 			}
 			if p.Availability == audio.AvailabilityNo {
 				if connected {
@@ -191,6 +269,7 @@ func describe(sink audio.Device, in Inputs, aliases map[string]string) Device {
 	return Device{
 		ID:         PriorityID(sink.Name),
 		Name:       name,
+		Label:      label,
 		Sink:       sink.Name,
 		Online:     true,
 		Connected:  connected,
@@ -250,26 +329,29 @@ func List(in Inputs) []Device {
 			add(d)
 			continue
 		}
-		add(offline(id, aliases))
+		add(offline(id, aliases, in.Names))
 	}
 	for _, id := range order {
 		add(online[id])
 	}
 	for _, b := range in.Bluetooth {
-		add(offline(BluetoothPrefix+b.MAC, aliases))
+		add(offline(BluetoothPrefix+b.MAC, aliases, nil))
 	}
 	return out
 }
 
 // offline is a remembered device with no sink: named from the adapter when
-// it is a Bluetooth id, else by its id, and marked disconnected.
-func offline(id string, aliases map[string]string) Device {
+// it is a Bluetooth id, else by the name it had when last seen (spec 004),
+// else by its id, and marked disconnected.
+func offline(id string, aliases, names map[string]string) Device {
 	d := Device{ID: id, Name: id}
 	if mac, ok := strings.CutPrefix(id, BluetoothPrefix); ok {
 		d.MAC = mac
 		if alias := aliases[mac]; alias != "" {
 			d.Name = Plain(alias)
 		}
+	} else if name := names[id]; name != "" {
+		d.Name = name
 	}
 	d.Name += " [Disconnected]"
 	return d

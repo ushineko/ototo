@@ -186,7 +186,7 @@ func (s *Switcher) snapshot(ctx context.Context, srv server, cfg config.Config, 
 		defaultSink: info.DefaultSink,
 		jdspBroken:  s.JamesDSPBroken(),
 		list: devices.List(devices.Inputs{
-			Sinks: sinks, DefaultSink: info.DefaultSink, Priority: cfg.DevicePriority,
+			Sinks: sinks, DefaultSink: info.DefaultSink, Priority: cfg.DevicePriority, Names: cfg.DeviceNames,
 			Bluetooth: probes.bluetooth(ctx), Headset: probes.headset(ctx),
 		}),
 	}

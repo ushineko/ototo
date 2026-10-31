@@ -248,6 +248,7 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 	probes := req.probes()
 	in := devices.Inputs{
 		Priority:  cfg.DevicePriority,
+		Names:     cfg.DeviceNames,
 		Bluetooth: probes.bluetooth(ctx),
 		Headset:   probes.headset(ctx),
 	}
