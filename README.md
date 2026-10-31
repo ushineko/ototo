@@ -13,7 +13,7 @@ done this job on a KDE Plasma desktop through thirteen releases, and it
 replaces it. The behaviour is that program's; the spec is
 [`specs/001`](specs/001-port-audio-source-switcher.md).
 
-**Version**: 0.1.5
+**Version**: 0.1.6
 
 [Screenshots](https://github.com/ushineko/ototo/blob/main/docs/screenshots.md)
 of the three sections, over invented devices.
@@ -247,7 +247,7 @@ window does not carry pictures of the window.
 
 ## Changelog
 
-### Unreleased
+### 0.1.6 (2026-10-31)
 
 - **A USB device is named by what it says it is** (#41). PipeWire names a
   USB device from the USB ID database by the chip's ids, so a UGREEN BT701
