@@ -191,6 +191,14 @@ Passed by ear on the development host, by the operator, on the current stack
 switching to handsfree stayed audible, and the return to A2DP stayed audible.
 Run once before the host rebooted and confirmed again after it.
 
+Observed once, not explained: the return from handsfree to A2DP took about a
+minute rather than the few seconds expected. Not reproduced, and the cause may
+lie outside ototo. ototo's re-assertion tick is 5 s (`gui.TickInterval`), so a
+delay of that length is roughly twelve ticks and is unlikely to be the tick
+cadence; the BlueZ/WirePlumber re-establishment of the A2DP transport after the
+SCO teardown is the more likely place to look. To be raised as its own issue if
+it recurs.
+
 Unrelated finding during the same run: the headset negotiates A2DP/LDAC at
 96 kHz and is silent in that state, with every graph reading healthy. That is a
 codec fault on the host, not a bridge fault — it reproduces with ototo stopped —
