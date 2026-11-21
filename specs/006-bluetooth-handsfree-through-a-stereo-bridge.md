@@ -2,7 +2,7 @@
 
 **Issue**: #48
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
@@ -142,7 +142,7 @@ A2DP, FL and FR both → MONO on handsfree. Findings that shape the design:
 - [x] R6: the volume target with JamesDSP on the bridge is the Bluetooth sink.
 - [x] Non-Bluetooth switches produce the same pw-link calls as before (existing
       switch tests pass unchanged).
-- [ ] **Integration (real PipeWire, development host, WirePlumber 0.5.19)**: the locally
+- [x] **Integration (real PipeWire, development host, WirePlumber 0.5.19)**: the locally
       built ototo routes line-in → JamesDSP → bridge → XM6; audible on A2DP; a call
       switching to handsfree stays audible (operator, by ear) with `btmon -S`
       showing distinct SCO TX payloads; returning to A2DP stays audible; no
@@ -183,6 +183,19 @@ loopback running, Sony WH-1000XM6.
 4. Watch ototo's log for 2 minutes: no repeated switch. (R5)
 5. Volume keys change the XM6 volume. (R6)
 6. Quit ototo: bridge node gone, no `pw-loopback` orphan. (R1.3)
+
+### Results (2026-11-21)
+
+Passed by ear on the development host, by the operator, on the current stack
+(WirePlumber 0.5.19, PipeWire 1.6.11): A2DP audible through the bridge, a call
+switching to handsfree stayed audible, and the return to A2DP stayed audible.
+Run once before the host rebooted and confirmed again after it.
+
+Unrelated finding during the same run: the headset negotiates A2DP/LDAC at
+96 kHz and is silent in that state, with every graph reading healthy. That is a
+codec fault on the host, not a bridge fault — it reproduces with ototo stopped —
+and is mitigated outside this repository by excluding LDAC from the offered
+codecs. The A2DP legs above were verified on AAC at 48 kHz.
 
 ### Prod visibility
 
