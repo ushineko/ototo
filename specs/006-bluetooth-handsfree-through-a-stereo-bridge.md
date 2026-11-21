@@ -6,7 +6,21 @@
 
 ## Executive Summary
 
-(Filled in before the PR.)
+A call that switches a Bluetooth headset to handsfree went silent, because
+JamesDSP outputs nothing into a mono HFP sink (JDSP4Linux #298) and WirePlumber
+0.5.14 removed the stereo loopback that used to hide it. ototo now owns that
+loopback: a `pw-loopback` child starts on the first Bluetooth route, JamesDSP
+plays into it, and its playback side is linked to the headset — FL/FR on A2DP,
+both channels summed into MONO on handsfree, re-wired on every profile change
+because the switch destroys the Bluetooth node.
+
+Reviewers should look first at `internal/bridge/bridge.go` (the child's lifetime
+and the `node.autoconnect=false` argument, without which WirePlumber links the
+stream into JamesDSP's own sink and makes a feedback loop) and at the relink
+paths in `internal/graph/graph.go` and `internal/core/switch.go`, where the
+non-Bluetooth call sequences had to stay byte-identical. The mono downmix drops
+the bridge stream to 0.5, since summing both channels into one port clipped by
+up to 6 dB in the first run.
 
 ## Context
 
