@@ -28,9 +28,11 @@ import (
 // (spec 003 R4), read at every show, with a switch or a message held
 // config.OSDHoldExtraMS longer: both are worth a longer look than a step of
 // the volume. A server event is read 80 ms after it arrives so a burst of
-// changes is one read.
+// changes is one read. The bridge is re-wired 150 ms after the last sink or
+// card event, when a profile switch has finished recreating its nodes.
 const (
 	indicatorDebounce = 80 * time.Millisecond
+	bridgeDebounce    = 150 * time.Millisecond
 	indicatorWidth    = 380
 )
 
@@ -227,9 +229,17 @@ until the context ends; the window starts it and cancels it on quit.
 func (u *ui) watchVolume(ctx context.Context) {
 	events := make(chan audio.Event, 64)
 	go audio.Watch(ctx, u.server, events, func(s string) { u.events().Log(core.LevelWarn, s) })
-	var timer *time.Timer
+	var timer, rewire *time.Timer
 	for ev := range events {
 		u.events().Log(core.LevelDebug, fmt.Sprintf("server event: %s %s %d", ev.Facility, ev.Change, ev.Index))
+		if (ev.Facility == audio.FacilitySink && ev.Change == audio.ChangeNew) || ev.Facility == audio.FacilityCard {
+			// A profile switch recreates the Bluetooth sink and drops the
+			// bridge's links; re-wire without waiting for the tick (spec 006 R3.2).
+			if rewire != nil {
+				rewire.Stop()
+			}
+			rewire = time.AfterFunc(bridgeDebounce, func() { u.sw.MaintainBridge(ctx, u.request()) })
+		}
 		if ev.Facility != audio.FacilitySink && !ev.Reconnected {
 			continue
 		}
@@ -240,6 +250,9 @@ func (u *ui) watchVolume(ctx context.Context) {
 	}
 	if timer != nil {
 		timer.Stop()
+	}
+	if rewire != nil {
+		rewire.Stop()
 	}
 }
 

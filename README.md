@@ -100,13 +100,22 @@ The choice comes from your order: every five seconds the highest device in
 it that can play becomes the output, and a Bluetooth device is connected
 first. Volume keys act on the device that is playing, behind the filter.
 
+A Bluetooth headset is reached through a small stereo bridge that `ototo`
+runs (a `pw-loopback`) rather than linked to the filter directly. JamesDSP
+outputs silence into the single mono port a headset has in handsfree, during
+a call ([JDSP4Linux #298](https://github.com/Audio4Linux/JDSP4Linux/issues/298)),
+and WirePlumber stopped putting a stereo node in front of it in 0.5.14. The
+bridge stays stereo; `ototo` links it to the headset's ports and re-links it
+when a call switches the profile.
+
 ## Requirements
 
 - **A PulseAudio server, mandatory.** PipeWire with `pipewire-pulse`, or
   PulseAudio itself. `ototo` speaks the PulseAudio native protocol to
   whichever is listening, and does nothing without one.
 - A desktop that draws OpenGL windows.
-- Optional at run time: `pw-link` (from PipeWire, for JamesDSP routing),
+- Optional at run time: `pw-link` and `pw-loopback` (from PipeWire, for
+  JamesDSP routing and the Bluetooth bridge),
   `bluez` (for headsets), `headsetcontrol` (for the Arctis battery). Each is
   reported when absent, and nothing else stops working.
 - To build: Go 1.26 or newer, a C toolchain, and the OpenGL and X11/Wayland

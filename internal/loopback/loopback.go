@@ -68,7 +68,7 @@ type Loopback struct {
 }
 
 // New uses the real commands.
-func New() *Loopback { return &Loopback{run: runCommand, start: startCommand} }
+func New() *Loopback { return &Loopback{run: runCommand, start: StartCommand} }
 
 // NewWith uses the given runner and starter, for tests.
 func NewWith(run Runner, start Starter) *Loopback { return &Loopback{run: run, start: start} }
@@ -216,12 +216,13 @@ func runCommand(ctx context.Context, name string, args ...string) (string, error
 	return string(out), nil
 }
 
-// startCommand starts a child and returns a stop that terminates it and
+// StartCommand starts a child and returns a stop that terminates it and
 // waits up to three seconds before killing it, as the original did.
-func startCommand(name string, args ...string) (func(), func() bool, error) {
+func StartCommand(name string, args ...string) (func(), func() bool, error) {
 	// The child outlives every request: it runs until Set(false) or Close,
 	// so it is not bound to a caller's context.
 	cmd := exec.CommandContext(context.Background(), name, args...) //nolint:gosec // fixed program, arguments from the server
+	cmd.SysProcAttr = childAttr()
 	if err := cmd.Start(); err != nil {
 		return nil, nil, err //nolint:wrapcheck // the caller names the program
 	}

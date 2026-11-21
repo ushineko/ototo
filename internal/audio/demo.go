@@ -180,6 +180,9 @@ func (d *Demo) SetDefaultSource(name string) error {
 // MoveSinkInputs reports two streams moved and none refused.
 func (d *Demo) MoveSinkInputs(string) (int, int, error) { return 2, 0, nil }
 
+// SetStreamLevel does nothing: the demo has no streams.
+func (d *Demo) SetStreamLevel(string, float64) error { return nil }
+
 func (d *Demo) sink(name string) int {
 	for i, s := range d.file.Sinks {
 		if s.Name == name {

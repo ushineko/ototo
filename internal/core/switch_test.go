@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,6 +55,10 @@ func (f *fakeServer) SetDefaultSink(name string) error {
 func (f *fakeServer) SetDefaultSource(name string) error {
 	f.calls = append(f.calls, "default-source "+name)
 	f.defaultSrc = name
+	return nil
+}
+func (f *fakeServer) SetStreamLevel(node string, linear float64) error {
+	f.calls = append(f.calls, fmt.Sprintf("level %s %.2f", node, linear))
 	return nil
 }
 func (f *fakeServer) MoveSinkInputs(sink string) (int, int, error) {

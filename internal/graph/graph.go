@@ -35,8 +35,24 @@ const Timeout = 3 * time.Second
 var (
 	ErrNoOutputs    = errors.New("JamesDSP has no output ports in the graph")
 	ErrNoInputs     = errors.New("the target sink has no playback ports in the graph")
+	ErrNoBridge     = errors.New("the Bluetooth bridge has no output ports in the graph")
 	ErrNotAvailable = errors.New("pw-link is not installed")
 )
+
+/*
+BridgeSink and BridgeOut are the two nodes of the stereo bridge JamesDSP
+plays into on the way to a Bluetooth sink (spec 006): the sink JamesDSP's
+outputs link to, and the stream whose outputs ototo links to the headset.
+JamesDSP outputs silence into a mono handsfree sink (JDSP4Linux #298); the
+bridge stays stereo, and the mono downmix happens in the bridge's links.
+*/
+const (
+	BridgeSink = "ototo_bt_bridge"
+	BridgeOut  = "ototo_bt_bridge_out"
+)
+
+// monoPort is the one playback port of a handsfree (HFP/HSP) sink.
+const monoPort = ":playback_MONO"
 
 // Graph is the PipeWire graph as pw-link shows it.
 type Graph struct {
@@ -91,17 +107,124 @@ func (g *Graph) PlaybackPorts(ctx context.Context, sink string) ([]string, error
 }
 
 // Target is the sink JamesDSP plays into right now: "" when it is floating
-// (outputs with no links) or absent (no outputs).
+// (outputs with no links) or absent (no outputs). Through the bridge it is
+// the sink the bridge plays into, which is the hardware.
 func (g *Graph) Target(ctx context.Context) (string, error) {
+	sink, _, err := g.Route(ctx)
+	return sink, err
+}
+
+// Route is Target, and whether JamesDSP reaches that sink through the
+// bridge. JamesDSP on the bridge with the bridge linked to nothing is
+// floating: "", true.
+func (g *Graph) Route(ctx context.Context) (sink string, viaBridge bool, err error) {
 	outs, err := g.JamesDSPOutputs(ctx)
 	if err != nil || len(outs) == 0 {
-		return "", err
+		return "", false, err
 	}
 	links, err := g.run(ctx, "-l")
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return linkedSink(links, outs[0]), nil
+	sink = linkedSink(links, outs[0])
+	if sink != BridgeSink {
+		return sink, false, nil
+	}
+	return linkedSink(links, BridgeOut+":output_FL"), true, nil
+}
+
+// BridgeOutputs lists the bridge's output ports, sorted, or nothing when the
+// bridge is not in the graph.
+func (g *Graph) BridgeOutputs(ctx context.Context) ([]string, error) {
+	out, err := g.run(ctx, "-o")
+	if err != nil {
+		return nil, err
+	}
+	return parsePrefixed(out, BridgeOut+":output_"), nil
+}
+
+/*
+WireBridge links the bridge's outputs to sink's playback ports (spec 006 R3):
+both outputs to a handsfree sink's one mono port, otherwise pairwise as
+Relink pairs them. It is idempotent: when the bridge is already linked
+exactly so, nothing is unlinked or linked, because it runs on every server
+event and every tick, and an unlink drops audio. mono reports the mono case,
+where the two channels are summed and the caller halves the bridge's level.
+*/
+func (g *Graph) WireBridge(ctx context.Context, sink string) (mono bool, err error) {
+	outs, err := g.BridgeOutputs(ctx)
+	if err != nil {
+		return false, err
+	}
+	if len(outs) == 0 {
+		return false, ErrNoBridge
+	}
+	ins, err := g.PlaybackPorts(ctx, sink)
+	if err != nil {
+		return false, err
+	}
+	if len(ins) == 0 {
+		return false, fmt.Errorf("%w: %s", ErrNoInputs, sink)
+	}
+	mono = isMono(ins)
+	links, err := g.run(ctx, "-l")
+	if err != nil {
+		return mono, err
+	}
+	want := pairPorts(outs, ins)
+	if sameLinks(links, outs, want) {
+		return mono, nil
+	}
+	for _, out := range outs {
+		for _, target := range linkedPorts(links, out) {
+			_, _ = g.run(ctx, "-d", out, target)
+		}
+	}
+	for _, l := range want {
+		if _, err := g.run(ctx, l[0], l[1]); err != nil {
+			return mono, fmt.Errorf("link %s to %s: %w", l[0], l[1], err)
+		}
+	}
+	return mono, nil
+}
+
+// isMono is whether a sink's playback ports are a handsfree sink's lone mono port.
+func isMono(ins []string) bool { return len(ins) == 1 && strings.HasSuffix(ins[0], monoPort) }
+
+// pairPorts is the links from outs to ins: every output to a lone mono
+// input, else sorted outputs to sorted inputs pairwise.
+func pairPorts(outs, ins []string) [][2]string {
+	var pairs [][2]string
+	if isMono(ins) {
+		for _, out := range outs {
+			pairs = append(pairs, [2]string{out, ins[0]})
+		}
+		return pairs
+	}
+	for i := 0; i < len(outs) && i < len(ins); i++ {
+		pairs = append(pairs, [2]string{outs[i], ins[i]})
+	}
+	return pairs
+}
+
+// sameLinks reports whether the outputs' playback links in the listing are
+// exactly want.
+func sameLinks(links string, outs []string, want [][2]string) bool {
+	have := map[[2]string]bool{}
+	for _, out := range outs {
+		for _, target := range linkedPorts(links, out) {
+			have[[2]string{out, target}] = true
+		}
+	}
+	if len(have) != len(want) {
+		return false
+	}
+	for _, l := range want {
+		if !have[l] {
+			return false
+		}
+	}
+	return true
 }
 
 /*
@@ -153,6 +276,18 @@ func parseOutputs(text string) []string {
 	for _, line := range strings.Split(text, "\n") {
 		if strings.Contains(line, "jdsp_") && strings.Contains(line, "JamesDsp") && strings.Contains(line, ":output_") {
 			ports = append(ports, strings.TrimSpace(line))
+		}
+	}
+	sort.Strings(ports)
+	return ports
+}
+
+// parsePrefixed keeps the lines of a port listing that start with prefix.
+func parsePrefixed(text, prefix string) []string {
+	var ports []string
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, prefix) {
+			ports = append(ports, line)
 		}
 	}
 	sort.Strings(ports)

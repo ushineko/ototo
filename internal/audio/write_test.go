@@ -70,3 +70,20 @@ func liveClient(t *testing.T) *Client {
 	t.Cleanup(func() { _ = c.Close() })
 	return c
 }
+
+// TestTheBridgeStreamIsNotMoved: a switch moves every stream into JamesDSP's
+// sink but the Bluetooth bridge's own, which would feed back (spec 006 R4).
+func TestTheBridgeStreamIsNotMoved(t *testing.T) {
+	require.False(t, Movable(SinkInput{Name: "playback", Node: "ototo_bt_bridge_out"}))
+	require.True(t, Movable(SinkInput{Name: "Playback", Node: "Teams for Linux"}))
+	require.True(t, Movable(SinkInput{Name: "/usr/bin/pw-loopback-1 output"}))
+}
+
+// TestHalfIsMinusSixDecibels: the protocol's volume is cubic, so the linear
+// gain the bridge needs for an (L+R)/2 downmix is written as its cube root.
+func TestHalfIsMinusSixDecibels(t *testing.T) {
+	require.Equal(t, proto.Volume(volumeNorm), linearVolume(1))
+	require.Equal(t, proto.Volume(52016), linearVolume(0.5))
+	require.True(t, allAt(proto.ChannelVolumes{52016, 52016}, 52016))
+	require.False(t, allAt(proto.ChannelVolumes{52016, 65536}, 52016))
+}

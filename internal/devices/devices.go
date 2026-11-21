@@ -114,6 +114,10 @@ func macIn(s string) string {
 // fallback face that breaks the row it is in (fynedesygn quirk 19).
 var plainPunctuation = strings.NewReplacer("’", "'", "‘", "'", "“", `"`, "”", `"`, "–", "-", "—", "-")
 
+// IsBluetoothSink is whether a sink name is a Bluetooth sink's: bluez names
+// them bluez_output.<address>[.N] in every profile.
+func IsBluetoothSink(name string) bool { return strings.HasPrefix(name, "bluez_output.") }
+
 // Plain is a name with its typographic punctuation made plain.
 func Plain(name string) string { return plainPunctuation.Replace(name) }
 

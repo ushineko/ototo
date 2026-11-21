@@ -36,6 +36,10 @@ type snapshot struct {
 	jdspSink     bool   // the JamesDSP sink exists
 	jdspOutputs  bool   // the filter has output ports in the graph
 	jdspTarget   string // where those ports play; "" when floating
+	jdspBridged  bool   // they reach jdspTarget through the Bluetooth bridge
+	// bridgeWanted is whether a Bluetooth target should be reached through
+	// the bridge: the resident process has one and it has not failed.
+	bridgeWanted bool
 	jdspBroken   bool
 }
 
@@ -92,6 +96,9 @@ func decide(sn snapshot) decision {
 			case sn.jdspTarget != "" && sn.jdspTarget != want:
 				d.switchNow = true
 				d.reason = "JamesDSP plays into " + sn.jdspTarget + ", not the first available device"
+			case sn.bridgeWanted && devices.IsBluetoothSink(want) && !sn.jdspBridged:
+				d.switchNow = true
+				d.reason = "JamesDSP plays into the Bluetooth device without the bridge"
 			case sn.jdspTarget != "":
 				valid = true
 				d.reason = "JamesDSP plays into the first available device"
@@ -200,11 +207,12 @@ func (s *Switcher) snapshot(ctx context.Context, srv server, cfg config.Config, 
 		}
 		sn.jdspOutputs = len(outs) > 0
 		if sn.jdspOutputs {
-			target, err := s.graph().Target(ctx)
+			target, bridged, err := s.graph().Route(ctx)
 			if err == nil {
-				sn.jdspTarget = target
+				sn.jdspTarget, sn.jdspBridged = target, bridged
 			}
 		}
+		sn.bridgeWanted = s.Bridge != nil && !s.BridgeFailed()
 	}
 	return sn, nil
 }
