@@ -13,7 +13,7 @@ done this job on a KDE Plasma desktop through thirteen releases, and it
 replaces it. The behaviour is that program's; the spec is
 [`specs/001`](specs/001-port-audio-source-switcher.md).
 
-**Version**: 0.1.6
+**Version**: 0.1.7
 
 [Screenshots](https://github.com/ushineko/ototo/blob/main/docs/screenshots.md)
 of the three sections, over invented devices.
@@ -255,6 +255,20 @@ them appears in the repository. They live on a page of their own,
 window does not carry pictures of the window.
 
 ## Changelog
+
+### 0.1.7 (2026-11-21)
+
+- **A call no longer goes silent** (#48). JamesDSP outputs nothing into the
+  single mono port a Bluetooth headset has in handsfree
+  ([JDSP4Linux #298](https://github.com/Audio4Linux/JDSP4Linux/issues/298)), and
+  WirePlumber stopped putting a stereo node in front of that port in 0.5.14, so
+  a call took the audio with it. `ototo` now runs its own stereo bridge (a
+  `pw-loopback`), plays JamesDSP into it and links it to the headset: paired
+  FL/FR on A2DP, both channels summed into the mono port on handsfree, re-linked
+  whenever a call switches the profile. The bridge drops to half level while it
+  feeds the mono port, because summing two channels into one clipped. Without
+  `pw-loopback` the previous direct route is used and the failure is reported
+  once.
 
 ### 0.1.6 (2026-10-31)
 
