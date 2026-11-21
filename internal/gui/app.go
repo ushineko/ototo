@@ -31,6 +31,7 @@ import (
 	fdtheme "github.com/ushineko/fynedesygn/theme"
 	"github.com/ushineko/fynedesygn/widgets"
 
+	"github.com/ushineko/ototo/internal/bridge"
 	"github.com/ushineko/ototo/internal/core"
 	"github.com/ushineko/ototo/internal/devices"
 	"github.com/ushineko/ototo/internal/instance"
@@ -225,8 +226,16 @@ func Run(o Options) int {
 func newUI(o Options) *ui {
 	return &ui{
 		version: o.Version, commit: o.Commit, configPath: o.ConfigPath, server: o.Server,
-		sw: core.NewSwitcher(), selected: -1,
+		sw: residentSwitcher(), selected: -1,
 	}
+}
+
+// residentSwitcher is the window's Switcher: the one that lives as long as
+// the process, so it owns the Bluetooth bridge child (spec 006).
+func residentSwitcher() *core.Switcher {
+	sw := core.NewSwitcher()
+	sw.Bridge = bridge.New()
+	return sw
 }
 
 // shellOptions describes this program to the shell.

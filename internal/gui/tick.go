@@ -86,6 +86,7 @@ func (t *ticker) fire(u *ui) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), TickInterval*3)
 	defer cancel()
+	u.sw.MaintainBridge(ctx, u.request())
 	res, err := u.sw.AutoSwitch(ctx, core.AutoSwitchRequest{Request: u.request()})
 	if err != nil {
 		u.events().Log(core.LevelWarn, "auto-switch: "+err.Error())

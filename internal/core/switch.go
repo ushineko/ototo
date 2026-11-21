@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ushineko/ototo/internal/audio"
+	"github.com/ushineko/ototo/internal/bridge"
 	"github.com/ushineko/ototo/internal/config"
 	"github.com/ushineko/ototo/internal/devices"
 	"github.com/ushineko/ototo/internal/graph"
@@ -25,6 +26,7 @@ type server interface {
 	SetDefaultSink(name string) error
 	SetDefaultSource(name string) error
 	MoveSinkInputs(sink string) (moved, refused int, err error)
+	SetStreamLevel(node string, linear float64) error
 	Volume(sink string) (percent int, muted bool, err error)
 	AdjustVolume(sink string, delta int) (int, error)
 	SetVolume(sink string, percent int) (int, error)
@@ -80,6 +82,10 @@ type Switcher struct {
 	Notifier notify.Notifier
 	// Loopback is the line-in loopback (R9.3); nil uses the real commands.
 	Loopback *loopback.Loopback
+	// Bridge is the stereo bridge in front of a Bluetooth sink (spec 006);
+	// nil routes JamesDSP to the sink directly. The resident process sets
+	// it; a one-shot --connect does not, as its child would die on exit.
+	Bridge *bridge.Bridge
 	// Player plays the switch sound into sink after lead of silence; nil
 	// plays over the sound server.
 	Player func(server, sink string, lead time.Duration, cfg config.Config) error
@@ -89,6 +95,12 @@ type Switcher struct {
 	mu           sync.Mutex
 	jdspBroken   bool
 	lastPhysical string
+	// bridgeSink is the Bluetooth sink the bridge was last wired to; "" when
+	// JamesDSP does not play through the bridge. bridgeFailed is set when the
+	// bridge could not be used, so the failure is reported once and the
+	// auto-switch does not insist on it.
+	bridgeSink   string
+	bridgeFailed bool
 	// vol tracks the level a run of volume-key presses is aiming at, so a
 	// device that reports its own volume back slowly and in coarse steps
 	// (a Bluetooth headset over AVRCP) does not send each press's delta off
@@ -149,10 +161,14 @@ func (s *Switcher) loopback() *loopback.Loopback {
 	return s.Loopback
 }
 
-// Close stops what the Switcher owns: a direct loopback child, if any.
+// Close stops what the Switcher owns: a direct loopback child and the
+// bridge child, if any.
 func (s *Switcher) Close() {
 	if s.Loopback != nil {
 		s.Loopback.Close()
+	}
+	if s.Bridge != nil {
+		s.Bridge.Close()
 	}
 }
 
@@ -297,6 +313,105 @@ func (s *Switcher) list(srv server, in devices.Inputs) ([]devices.Device, error)
 	return devices.List(in), nil
 }
 
+/*
+routeViaBridge starts the bridge if needed and wires it to sink (spec 006
+R2, R3), and says whether JamesDSP should play into it. Without a Bridge, or
+when the bridge cannot be started or wired, the answer is no and the switch
+relinks JamesDSP to the sink directly, as before; the failure is reported
+once (R1.4).
+*/
+func (s *Switcher) routeViaBridge(ctx context.Context, srv server, sink string, ev Events) bool {
+	if s.Bridge == nil {
+		return false
+	}
+	g := s.graph()
+	ready := func(ctx context.Context) bool {
+		outs, err := g.BridgeOutputs(ctx)
+		if err != nil || len(outs) == 0 {
+			return false
+		}
+		ins, err := g.PlaybackPorts(ctx, graph.BridgeSink)
+		return err == nil && len(ins) > 0
+	}
+	err := s.Bridge.Ensure(ctx, ready)
+	if err == nil {
+		var mono bool
+		mono, err = g.WireBridge(ctx, sink)
+		if err == nil {
+			levelBridge(srv, mono, ev)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		if !s.bridgeFailed {
+			ev.logf(LevelWarn, "the Bluetooth bridge is unavailable (%v); routing JamesDSP to %s directly", err, sink)
+		}
+		s.bridgeFailed = true
+		s.bridgeSink = ""
+		return false
+	}
+	s.bridgeFailed = false
+	s.bridgeSink = sink
+	return true
+}
+
+func (s *Switcher) setBridgeSink(sink string) {
+	s.mu.Lock()
+	s.bridgeSink = sink
+	s.mu.Unlock()
+}
+
+/*
+MaintainBridge re-wires the bridge to the sink it serves (spec 006 R3.2). A
+profile switch destroys the Bluetooth node and the links with it; the
+resident process calls this on every sink event and tick. WireBridge
+changes nothing when the links are already right, and the level is written
+only when it differs.
+*/
+func (s *Switcher) MaintainBridge(ctx context.Context, req Request) {
+	s.mu.Lock()
+	sink := s.bridgeSink
+	s.mu.Unlock()
+	if sink == "" || s.Bridge == nil || !s.Bridge.Running() {
+		return
+	}
+	mono, err := s.graph().WireBridge(ctx, sink)
+	if err != nil {
+		req.Events.logf(LevelDebug, "re-wiring the Bluetooth bridge to %s: %v", sink, err)
+		return
+	}
+	srv, err := s.connect(req.Server)
+	if err != nil {
+		req.Events.logf(LevelDebug, "setting the Bluetooth bridge level: %v", err)
+		return
+	}
+	defer func() { _ = srv.Close() }()
+	levelBridge(srv, mono, req.Events)
+}
+
+/*
+levelBridge sets the bridge stream's gain (spec 006 R3.4): into a mono port
+the two channels are summed, which clips correlated material, so the gain
+is halved for an (L+R)/2 downmix; into a stereo port it is unity.
+*/
+func levelBridge(srv server, mono bool, ev Events) {
+	level := 1.0
+	if mono {
+		level = bridge.MonoLevel
+	}
+	if err := srv.SetStreamLevel(graph.BridgeOut, level); err != nil {
+		ev.logf(LevelWarn, "setting the Bluetooth bridge level: %v", err)
+	}
+}
+
+// BridgeFailed reports whether the bridge could not be used at the last try.
+func (s *Switcher) BridgeFailed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.bridgeFailed
+}
+
 // hasJamesDSP says the server has the JamesDSP sink. Without it there is
 // nothing to route through, whatever the graph says: the graph is the
 // machine's, and a demo server is not.
@@ -415,7 +530,13 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 			return res, err
 		}
 		move(devices.JamesDSPSink)
-		if err := s.graph().Relink(ctx, dev.Sink); err != nil {
+		relinkTo := dev.Sink
+		if devices.IsBluetoothSink(dev.Sink) && s.routeViaBridge(ctx, srv, dev.Sink, ev) {
+			relinkTo = graph.BridgeSink
+		} else {
+			s.setBridgeSink("")
+		}
+		if err := s.graph().Relink(ctx, relinkTo); err != nil {
 			ev.logf(LevelWarn, "JamesDSP could not be rewired (%v); switching the hardware directly", err)
 			s.mu.Lock()
 			s.jdspBroken = true
@@ -432,6 +553,7 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 			res.ViaJamesDSP = true
 		}
 	} else {
+		s.setBridgeSink("")
 		if err := srv.SetDefaultSink(dev.Sink); err != nil {
 			return res, err
 		}
