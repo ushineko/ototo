@@ -1,6 +1,6 @@
 # 006: JamesDSP reaches a Bluetooth headset through a stereo bridge, so handsfree is not silent
 
-**Issue**: #47
+**Issue**: #48
 
 ## Status: INCOMPLETE
 
