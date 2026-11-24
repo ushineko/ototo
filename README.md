@@ -13,7 +13,7 @@ done this job on a KDE Plasma desktop through thirteen releases, and it
 replaces it. The behaviour is that program's; the spec is
 [`specs/001`](specs/001-port-audio-source-switcher.md).
 
-**Version**: 0.1.7
+**Version**: 0.1.8
 
 [Screenshots](https://github.com/ushineko/ototo/blob/main/docs/screenshots.md)
 of the three sections, over invented devices.
@@ -256,7 +256,7 @@ window does not carry pictures of the window.
 
 ## Changelog
 
-### Unreleased
+### 0.1.8 (2026-11-24)
 
 - **The Bluetooth headset no longer goes silent after a restart or a
   reconnect** (#52). 0.1.7 wired its stereo bridge to a headset that Bluetooth
