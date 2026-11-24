@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	bluezName   = "org.bluez"
-	deviceIface = "org.bluez.Device1"
+	bluezName      = "org.bluez"
+	deviceIface    = "org.bluez.Device1"
+	transportIface = "org.bluez.MediaTransport1"
 )
 
 // audioUUIDs are the profiles that mean a device plays or records audio, as
@@ -144,6 +145,43 @@ func (a *Adapter) call(ctx context.Context, mac, method string) error {
 		return fmt.Errorf("%s %s: %w", strings.ToLower(method), mac, err)
 	}
 	return nil
+}
+
+/*
+TransportState is the state of the device's A2DP media transport: "idle",
+"pending" or "active", or "" when it has none, as in handsfree, which
+PipeWire runs without one. "active" is BlueZ streaming to the headset,
+which comes some tens of milliseconds after the sink starts (spec 007).
+*/
+func (a *Adapter) TransportState(ctx context.Context, mac string) (string, error) {
+	objs, err := a.managedObjects(ctx)
+	if err != nil {
+		return "", err
+	}
+	return transportState(objs, mac), nil
+}
+
+// transportState is the pure half of TransportState: the transports whose
+// Device is the device with this address, active if any is.
+func transportState(objs managed, mac string) string {
+	dev, ok := pathFor(objs, mac)
+	if !ok {
+		return ""
+	}
+	state := ""
+	for _, ifaces := range objs {
+		props, ok := ifaces[transportIface]
+		if !ok {
+			continue
+		}
+		if p, _ := props["Device"].Value().(dbus.ObjectPath); p != dev {
+			continue
+		}
+		if state = str(props["State"]); state == "active" {
+			return state
+		}
+	}
+	return state
 }
 
 func pathFor(objs managed, mac string) (dbus.ObjectPath, bool) {

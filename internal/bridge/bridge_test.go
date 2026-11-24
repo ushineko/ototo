@@ -32,17 +32,31 @@ func (c *child) start(name string, args ...string) (func(), func() bool, error) 
 func always(context.Context) bool { return true }
 
 // TestTheBridgeStartsOnceAndRestartsWhenDead: repeated routes share one
-// child, and a child that died is started again on the next route.
+// child, and a child that died is started again on the next route. Each
+// start is reported as fresh, because a new child has never been wired to
+// anything (spec 007 D2).
 func TestTheBridgeStartsOnceAndRestartsWhenDead(t *testing.T) {
 	c := &child{}
 	b := NewWith(c.start)
-	require.NoError(t, b.Ensure(context.Background(), always))
-	require.NoError(t, b.Ensure(context.Background(), always))
+	fresh, err := b.Ensure(context.Background(), always)
+	require.NoError(t, err)
+	require.True(t, fresh)
+	fresh, err = b.Ensure(context.Background(), always)
+	require.NoError(t, err)
+	require.False(t, fresh, "the running child was reported as new")
 	require.EqualValues(t, 1, c.starts.Load())
 
 	c.alive.Store(false)
-	require.NoError(t, b.Ensure(context.Background(), always))
+	fresh, err = b.Ensure(context.Background(), always)
+	require.NoError(t, err)
+	require.True(t, fresh, "a restarted child was taken for the old one")
 	require.EqualValues(t, 2, c.starts.Load())
+}
+
+// ensure is Ensure for a test that does not care whether the child is new.
+func ensure(ctx context.Context, b *Bridge, ready func(context.Context) bool) error {
+	_, err := b.Ensure(ctx, ready)
+	return err
 }
 
 // TestCloseLeavesNoChild: the process exit stops the child, and a second
@@ -50,7 +64,7 @@ func TestTheBridgeStartsOnceAndRestartsWhenDead(t *testing.T) {
 func TestCloseLeavesNoChild(t *testing.T) {
 	c := &child{}
 	b := NewWith(c.start)
-	require.NoError(t, b.Ensure(context.Background(), always))
+	require.NoError(t, ensure(context.Background(), b, always))
 	b.Close()
 	b.Close()
 	require.False(t, c.alive.Load())
@@ -65,7 +79,7 @@ func TestABridgeThatNeverAppearsIsStoppedAndReported(t *testing.T) {
 	b := NewWith(c.start)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := b.Ensure(ctx, func(context.Context) bool { return false })
+	err := ensure(ctx, b, func(context.Context) bool { return false })
 	require.ErrorIs(t, err, ErrNotReady)
 	require.False(t, c.alive.Load())
 }
@@ -73,14 +87,14 @@ func TestABridgeThatNeverAppearsIsStoppedAndReported(t *testing.T) {
 // TestAMissingProgramIsAnError: no pw-loopback is the failure R1.4 reports.
 func TestAMissingProgramIsAnError(t *testing.T) {
 	c := &child{fail: errors.New("exec: not found")}
-	require.Error(t, NewWith(c.start).Ensure(context.Background(), always))
+	require.Error(t, ensure(context.Background(), NewWith(c.start), always))
 }
 
 // TestThePlaybackSideIsNotAutoconnected: with autoconnect on, WirePlumber
 // links the bridge into JamesDSP's own sink, a feedback loop.
 func TestThePlaybackSideIsNotAutoconnected(t *testing.T) {
 	c := &child{}
-	require.NoError(t, NewWith(c.start).Ensure(context.Background(), always))
+	require.NoError(t, ensure(context.Background(), NewWith(c.start), always))
 	joined := strings.Join(c.args, " ")
 	require.Contains(t, joined, "node.name=ototo_bt_bridge_out node.autoconnect=false")
 	require.Contains(t, joined, "media.class=Audio/Sink audio.position=[FL,FR]")

@@ -28,6 +28,10 @@ type Probes struct {
 	Headset func(ctx context.Context) devices.Headset
 	// SetIdle sets the headset's idle timeout; nil cannot.
 	SetIdle func(ctx context.Context, minutes int) error
+	// Transport is the state of a Bluetooth device's A2DP transport
+	// ("idle", "pending", "active"; "" for none), for spec 007's handover;
+	// nil cannot tell.
+	Transport func(ctx context.Context, mac string) string
 }
 
 // probeTimeout bounds one read of the adapter: a BlueZ that hangs must not
@@ -50,6 +54,15 @@ func DefaultProbes() Probes {
 		}
 		p.Connect = adapter.Connect
 		p.Disconnect = adapter.Disconnect
+		p.Transport = func(ctx context.Context, mac string) string {
+			ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+			defer cancel()
+			state, err := adapter.TransportState(ctx, mac)
+			if err != nil {
+				return ""
+			}
+			return state
+		}
 	}
 	if headset.Available() {
 		tool := headset.New()
@@ -81,6 +94,13 @@ func demoProbes(server string) Probes {
 		},
 		SetIdle: func(context.Context, int) error { return nil },
 	}
+}
+
+func (p Probes) transport(ctx context.Context, mac string) string {
+	if p.Transport == nil {
+		return ""
+	}
+	return p.Transport(ctx, mac)
 }
 
 func (p Probes) bluetooth(ctx context.Context) []devices.Bluetooth {

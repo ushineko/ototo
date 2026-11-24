@@ -141,13 +141,14 @@ func Movable(in SinkInput) bool { return in.Node != graph.BridgeOut }
 /*
 SetStreamLevel sets the volume of the stream whose node is named node, every
 channel to the same linear gain (1 is unity, 0.5 is -6 dB). A stream already
-there is not written, so a repeated call raises no change events. No such
-stream is not an error: there is nothing to set.
+there is not written, so a repeated call raises no change events, and
+changed says whether anything was. No such stream is not an error: there is
+nothing to set.
 */
-func (c *Client) SetStreamLevel(node string, linear float64) error {
+func (c *Client) SetStreamLevel(node string, linear float64) (changed bool, err error) {
 	inputs, err := c.SinkInputs()
 	if err != nil {
-		return err
+		return false, err
 	}
 	want := linearVolume(linear)
 	for _, in := range inputs {
@@ -159,10 +160,11 @@ func (c *Client) SetStreamLevel(node string, linear float64) error {
 			vols[i] = want
 		}
 		if err := c.c.Request(&proto.SetSinkInputVolume{SinkInputIndex: in.Index, ChannelVolumes: vols}, nil); err != nil {
-			return fmt.Errorf("set the level of %s: %w", node, err)
+			return changed, fmt.Errorf("set the level of %s: %w", node, err)
 		}
+		changed = true
 	}
-	return nil
+	return changed, nil
 }
 
 // linearVolume is the wire value of a linear gain: the protocol's volume is

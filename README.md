@@ -256,6 +256,16 @@ window does not carry pictures of the window.
 
 ## Changelog
 
+### Unreleased
+
+- **The Bluetooth headset no longer goes silent after a restart or a
+  reconnect** (#52). 0.1.7 wired its stereo bridge to a headset that Bluetooth
+  was not yet streaming to, and a headset woken that way played nothing while
+  every reading said it was playing. `ototo` now lets JamesDSP wake the
+  headset directly, the way 0.1.6 played it, and moves it onto the bridge once
+  BlueZ reports the headset's A2DP stream active, about a tenth of a second
+  later. Handsfree is wired as in 0.1.7.
+
 ### 0.1.7 (2026-11-21)
 
 - **A call no longer goes silent** (#48). JamesDSP outputs nothing into the

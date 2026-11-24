@@ -26,7 +26,8 @@ type server interface {
 	SetDefaultSink(name string) error
 	SetDefaultSource(name string) error
 	MoveSinkInputs(sink string) (moved, refused int, err error)
-	SetStreamLevel(node string, linear float64) error
+	SetStreamLevel(node string, linear float64) (bool, error)
+	BluetoothProfile(address string) (string, error)
 	Volume(sink string) (percent int, muted bool, err error)
 	AdjustVolume(sink string, delta int) (int, error)
 	SetVolume(sink string, percent int) (int, error)
@@ -95,12 +96,19 @@ type Switcher struct {
 	mu           sync.Mutex
 	jdspBroken   bool
 	lastPhysical string
-	// bridgeSink is the Bluetooth sink the bridge was last wired to; "" when
-	// JamesDSP does not play through the bridge. bridgeFailed is set when the
-	// bridge could not be used, so the failure is reported once and the
-	// auto-switch does not insist on it.
+	// bridgeSink is the Bluetooth sink the bridge serves: JamesDSP plays
+	// into it through the bridge, or directly while it wakes (spec 007);
+	// "" when JamesDSP does not go to a Bluetooth sink by the bridge.
+	// bridgeFailed is set when the bridge could not be used, so the failure
+	// is reported once and the auto-switch does not insist on it.
 	bridgeSink   string
 	bridgeFailed bool
+	// bridgeHeld is the sink node, by its index on the server, that the
+	// current bridge child was wired to while the node ran (spec 007 D2);
+	// bridgeHolds says there is one. A new child, or a new node, holds
+	// nothing until it has been wired to a running node.
+	bridgeHeld  uint32
+	bridgeHolds bool
 	// vol tracks the level a run of volume-key presses is aiming at, so a
 	// device that reports its own volume back slowly and in coarse steps
 	// (a Bluetooth headset over AVRCP) does not send each press's delta off
@@ -295,7 +303,7 @@ func (s *Switcher) switchByName(ctx context.Context, req SwitchRequest) (SwitchR
 		s.jdspBroken = false
 		s.mu.Unlock()
 	}
-	return s.switchTo(ctx, srv, cfg, dev, hasJamesDSP(sinks), req.Events)
+	return s.switchTo(ctx, srv, cfg, probes, dev, hasJamesDSP(sinks), req.Events)
 }
 
 // list reads the sinks and builds the device list.
@@ -313,14 +321,23 @@ func (s *Switcher) list(srv server, in devices.Inputs) ([]devices.Device, error)
 	return devices.List(in), nil
 }
 
+// The wait for a headset that JamesDSP is waking (spec 007 D4): long enough
+// for a sink with signal to start, short enough that a switch with nothing
+// playing does not hang; the tick finishes what the wait does not. Vars, so a
+// test can shorten them.
+var (
+	wakeTimeout = 2 * time.Second
+	wakePoll    = 50 * time.Millisecond
+)
+
 /*
-routeViaBridge starts the bridge if needed and wires it to sink (spec 006
-R2, R3), and says whether JamesDSP should play into it. Without a Bridge, or
-when the bridge cannot be started or wired, the answer is no and the switch
-relinks JamesDSP to the sink directly, as before; the failure is reported
-once (R1.4).
+startBridge starts the bridge if needed for a route to sink, and says
+whether it can be used. Without a Bridge, or when the child cannot be
+started, the answer is no and the switch relinks JamesDSP to the sink
+directly, as before; the failure is reported once (spec 006 R1.4). A new
+child holds no sink node (spec 007 D2).
 */
-func (s *Switcher) routeViaBridge(ctx context.Context, srv server, sink string, ev Events) bool {
+func (s *Switcher) startBridge(ctx context.Context, sink string, ev Events) bool {
 	if s.Bridge == nil {
 		return false
 	}
@@ -333,27 +350,28 @@ func (s *Switcher) routeViaBridge(ctx context.Context, srv server, sink string, 
 		ins, err := g.PlaybackPorts(ctx, graph.BridgeSink)
 		return err == nil && len(ins) > 0
 	}
-	err := s.Bridge.Ensure(ctx, ready)
-	if err == nil {
-		var mono bool
-		mono, err = g.WireBridge(ctx, sink)
-		if err == nil {
-			levelBridge(srv, mono, ev)
-		}
-	}
+	fresh, err := s.Bridge.Ensure(ctx, ready)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil {
-		if !s.bridgeFailed {
-			ev.logf(LevelWarn, "the Bluetooth bridge is unavailable (%v); routing JamesDSP to %s directly", err, sink)
-		}
-		s.bridgeFailed = true
-		s.bridgeSink = ""
+		s.bridgeFailedLocked(err, sink, ev)
 		return false
+	}
+	if fresh {
+		s.bridgeHolds = false
 	}
 	s.bridgeFailed = false
 	s.bridgeSink = sink
 	return true
+}
+
+func (s *Switcher) bridgeFailedLocked(err error, sink string, ev Events) {
+	if !s.bridgeFailed {
+		ev.logf(LevelWarn, "the Bluetooth bridge is unavailable (%v); routing JamesDSP to %s directly", err, sink)
+	}
+	s.bridgeFailed = true
+	s.bridgeSink = ""
+	s.bridgeHolds = false
 }
 
 func (s *Switcher) setBridgeSink(sink string) {
@@ -363,11 +381,160 @@ func (s *Switcher) setBridgeSink(sink string) {
 }
 
 /*
-MaintainBridge re-wires the bridge to the sink it serves (spec 006 R3.2). A
-profile switch destroys the Bluetooth node and the links with it; the
-resident process calls this on every sink event and tick. WireBridge
-changes nothing when the links are already right, and the level is written
-only when it differs.
+attachBridge puts JamesDSP where spec 007 R2.2 wants it for sink, a
+Bluetooth sink the bridge serves, and says whether that is the bridge.
+
+The bridge is wired to a sink node only once bridgeReady says so, or when
+this child already holds that node. A bridge wired to a headset BlueZ is
+not yet streaming to resumes it silent, with every reading healthy, and it
+stays so until the node is cycled. JamesDSP straight into the node wakes
+it, and the bridge then takes over.
+Nothing is relinked that is already where it should be, because this runs
+on every tick and server event, and an unlink drops audio.
+
+A bridge that cannot be wired returns a wireError and leaves JamesDSP where
+it was: in a switch that is the failure spec 006 R1.4 reports, and on a tick
+it is a node whose ports are not up yet, tried again on the next. Any other
+error is the relink's, which the switch recovers from as before.
+*/
+func (s *Switcher) attachBridge(ctx context.Context, srv server, probes Probes, sink string, ev Events) (bool, error) {
+	node, err := sinkNamed(srv, sink)
+	if err != nil {
+		return false, err
+	}
+	g := s.graph()
+	target, viaBridge, err := g.Route(ctx)
+	if err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	held := s.bridgeHolds && s.bridgeHeld == node.Index
+	s.mu.Unlock()
+
+	if !held && !bridgeReady(ctx, srv, probes, node) {
+		if target == sink && !viaBridge {
+			return false, nil
+		}
+		ev.logf(LevelDebug, "BlueZ is not streaming to %s yet; waking it with JamesDSP directly", sink)
+		return false, g.Relink(ctx, sink)
+	}
+
+	mono, err := g.WireBridge(ctx, sink)
+	if err != nil {
+		return false, wireError{err}
+	}
+	levelBridge(srv, mono, ev)
+	if !held {
+		s.mu.Lock()
+		s.bridgeHeld, s.bridgeHolds = node.Index, true
+		s.mu.Unlock()
+	}
+	if viaBridge {
+		return true, nil
+	}
+	ev.logf(LevelDebug, "BlueZ streams to %s; moving JamesDSP onto the Bluetooth bridge", sink)
+	return true, g.Relink(ctx, graph.BridgeSink)
+}
+
+/*
+bridgeReady says the bridge may be wired to node, a node it does not hold
+yet (spec 007 R2.2). For a headset in A2DP that is once the node runs and
+BlueZ streams to it. Measured on the development host: a handover within
+milliseconds of the node starting, before the transport went active, was
+silent 3/3; one after it was audible 3/3. The node starts in about 10 ms
+and the transport goes active some 60 to 90 ms later.
+
+Handsfree has no A2DP transport, and the bridge is wired to it at once, as
+spec 006 did and its test passed by ear; so is a headset whose profile the
+server does not report, and one whose transport cannot be read beyond the
+node running.
+*/
+func bridgeReady(ctx context.Context, srv server, probes Probes, node audio.Device) bool {
+	addr := node.Properties["api.bluez5.address"]
+	if addr == "" {
+		addr = strings.TrimPrefix(devices.PriorityID(node.Name), devices.BluetoothPrefix)
+	}
+	profile, err := srv.BluetoothProfile(addr)
+	if err != nil || !strings.HasPrefix(profile, "a2dp") {
+		return true
+	}
+	if node.State.Asleep() {
+		return false
+	}
+	state := probes.transport(ctx, addr)
+	return state == "" || state == "active"
+}
+
+/*
+awaitWake is spec 007 R2.3: after a switch left JamesDSP waking sink
+directly, it reads the sink and its transport until BlueZ streams to it and
+then attaches the bridge. A sink that does not run within wakeTimeout stays on the direct
+route, and MaintainBridge attaches it on a later tick or event.
+*/
+func (s *Switcher) awaitWake(ctx context.Context, srv server, probes Probes, sink string, ev Events) (bool, error) {
+	deadline := time.Now().Add(wakeTimeout)
+	for time.Now().Before(deadline) && ctx.Err() == nil {
+		node, err := sinkNamed(srv, sink)
+		if err != nil {
+			return false, err
+		}
+		if bridgeReady(ctx, srv, probes, node) {
+			return s.attachBridge(ctx, srv, probes, sink, ev)
+		}
+		time.Sleep(wakePoll)
+	}
+	ev.logf(LevelDebug, "%s did not start within %s; JamesDSP stays on it directly until it does", sink, wakeTimeout)
+	return false, nil
+}
+
+/*
+bridgeTo is a switch's route to a Bluetooth sink through a started bridge:
+attach it, or wake the sink and attach it once it runs (spec 007 R2.3). A
+bridge that cannot be wired is reported once and JamesDSP goes to the sink
+directly, as with no bridge at all (spec 006 R1.4).
+*/
+func (s *Switcher) bridgeTo(ctx context.Context, srv server, probes Probes, sink string, ev Events) error {
+	onBridge, err := s.attachBridge(ctx, srv, probes, sink, ev)
+	if err == nil && !onBridge {
+		_, err = s.awaitWake(ctx, srv, probes, sink, ev)
+	}
+	var wire wireError
+	if !errors.As(err, &wire) {
+		return err
+	}
+	s.mu.Lock()
+	s.bridgeFailedLocked(wire.err, sink, ev)
+	s.mu.Unlock()
+	return s.graph().Relink(ctx, sink)
+}
+
+// wireError is a bridge that could not be wired to its sink.
+type wireError struct{ err error }
+
+func (e wireError) Error() string { return "wire the Bluetooth bridge: " + e.err.Error() }
+func (e wireError) Unwrap() error { return e.err }
+
+// sinkNamed is the server's sink by name, with its index and state.
+func sinkNamed(srv server, name string) (audio.Device, error) {
+	sinks, err := srv.Sinks()
+	if err != nil {
+		return audio.Device{}, err
+	}
+	for _, d := range sinks {
+		if d.Name == name {
+			return d, nil
+		}
+	}
+	return audio.Device{}, fmt.Errorf("%w %q", ErrNotFound, name)
+}
+
+/*
+MaintainBridge keeps JamesDSP's route to the Bluetooth sink the bridge
+serves (spec 006 R3.2, spec 007 R2.4). A profile switch or a reconnect
+recreates the sink as a new node and drops the bridge's links, and a sink
+that JamesDSP is waking has to be moved onto the bridge once it runs; the
+resident process calls this on every sink event and tick. With the links
+already right nothing changes, and the level is written only when it differs.
 */
 func (s *Switcher) MaintainBridge(ctx context.Context, req Request) {
 	s.mu.Lock()
@@ -376,18 +543,15 @@ func (s *Switcher) MaintainBridge(ctx context.Context, req Request) {
 	if sink == "" || s.Bridge == nil || !s.Bridge.Running() {
 		return
 	}
-	mono, err := s.graph().WireBridge(ctx, sink)
-	if err != nil {
-		req.Events.logf(LevelDebug, "re-wiring the Bluetooth bridge to %s: %v", sink, err)
-		return
-	}
 	srv, err := s.connect(req.Server)
 	if err != nil {
-		req.Events.logf(LevelDebug, "setting the Bluetooth bridge level: %v", err)
+		req.Events.logf(LevelDebug, "keeping the Bluetooth bridge on %s: %v", sink, err)
 		return
 	}
 	defer func() { _ = srv.Close() }()
-	levelBridge(srv, mono, req.Events)
+	if _, err := s.attachBridge(ctx, srv, req.probes(), sink, req.Events); err != nil {
+		req.Events.logf(LevelDebug, "keeping the Bluetooth bridge on %s: %v", sink, err)
+	}
 }
 
 /*
@@ -400,8 +564,13 @@ func levelBridge(srv server, mono bool, ev Events) {
 	if mono {
 		level = bridge.MonoLevel
 	}
-	if err := srv.SetStreamLevel(graph.BridgeOut, level); err != nil {
+	changed, err := srv.SetStreamLevel(graph.BridgeOut, level)
+	if err != nil {
 		ev.logf(LevelWarn, "setting the Bluetooth bridge level: %v", err)
+		return
+	}
+	if changed {
+		ev.logf(LevelDebug, "set the Bluetooth bridge level to %.2f", level)
 	}
 }
 
@@ -500,7 +669,8 @@ func Resolve(list []devices.Device, target string) (devices.Device, bool) {
 
 // switchTo is R5.1 and R5.2 for a device that has a sink. jdspSink says
 // the server has the JamesDSP sink; without it the graph is not consulted.
-func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, dev devices.Device, jdspSink bool, ev Events) (SwitchResult, error) {
+func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, probes Probes, dev devices.Device, jdspSink bool,
+	ev Events) (SwitchResult, error) {
 	res := SwitchResult{Device: dev}
 
 	useJDSP := false
@@ -530,18 +700,20 @@ func (s *Switcher) switchTo(ctx context.Context, srv server, cfg config.Config, 
 			return res, err
 		}
 		move(devices.JamesDSPSink)
-		relinkTo := dev.Sink
-		if devices.IsBluetoothSink(dev.Sink) && s.routeViaBridge(ctx, srv, dev.Sink, ev) {
-			relinkTo = graph.BridgeSink
+		var relinkErr error
+		if devices.IsBluetoothSink(dev.Sink) && s.startBridge(ctx, dev.Sink, ev) {
+			relinkErr = s.bridgeTo(ctx, srv, probes, dev.Sink, ev)
 		} else {
 			s.setBridgeSink("")
+			relinkErr = s.graph().Relink(ctx, dev.Sink)
 		}
-		if err := s.graph().Relink(ctx, relinkTo); err != nil {
-			ev.logf(LevelWarn, "JamesDSP could not be rewired (%v); switching the hardware directly", err)
+		if relinkErr != nil {
+			s.setBridgeSink("")
+			ev.logf(LevelWarn, "JamesDSP could not be rewired (%v); switching the hardware directly", relinkErr)
 			s.mu.Lock()
 			s.jdspBroken = true
 			s.mu.Unlock()
-			res.Fallback = err.Error()
+			res.Fallback = relinkErr.Error()
 			if err := srv.SetDefaultSink(dev.Sink); err != nil {
 				return res, err
 			}

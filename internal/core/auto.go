@@ -40,6 +40,9 @@ type snapshot struct {
 	// bridgeWanted is whether a Bluetooth target should be reached through
 	// the bridge: the resident process has one and it has not failed.
 	bridgeWanted bool
+	// bridgeServes is the Bluetooth sink the bridge serves, which JamesDSP
+	// may be waking directly until the bridge holds it (spec 007 D5).
+	bridgeServes string
 	jdspBroken   bool
 }
 
@@ -96,6 +99,9 @@ func decide(sn snapshot) decision {
 			case sn.jdspTarget != "" && sn.jdspTarget != want:
 				d.switchNow = true
 				d.reason = "JamesDSP plays into " + sn.jdspTarget + ", not the first available device"
+			case sn.bridgeWanted && devices.IsBluetoothSink(want) && !sn.jdspBridged && sn.bridgeServes == want:
+				valid = true
+				d.reason = "JamesDSP wakes the Bluetooth device; the bridge takes it once it runs"
 			case sn.bridgeWanted && devices.IsBluetoothSink(want) && !sn.jdspBridged:
 				d.switchNow = true
 				d.reason = "JamesDSP plays into the Bluetooth device without the bridge"
@@ -169,7 +175,7 @@ func (s *Switcher) AutoSwitch(ctx context.Context, req AutoSwitchRequest) (AutoS
 		return res, nil
 	}
 	req.Events.logf(LevelInfo, "auto-switching to %s: %s", d.target.Name, d.reason)
-	sw, err := s.switchTo(ctx, srv, cfg, *d.target, sn.jdspSink, req.Events)
+	sw, err := s.switchTo(ctx, srv, cfg, req.probes(), *d.target, sn.jdspSink, req.Events)
 	if err != nil {
 		return res, err
 	}
@@ -213,6 +219,9 @@ func (s *Switcher) snapshot(ctx context.Context, srv server, cfg config.Config, 
 			}
 		}
 		sn.bridgeWanted = s.Bridge != nil && !s.BridgeFailed()
+		s.mu.Lock()
+		sn.bridgeServes = s.bridgeSink
+		s.mu.Unlock()
 	}
 	return sn, nil
 }
