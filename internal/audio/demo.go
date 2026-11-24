@@ -46,6 +46,9 @@ type DemoDevice struct {
 	ActivePort  string            `json:"active_port"`
 	Volume      int               `json:"volume"`
 	Mute        bool              `json:"mute"`
+	// State is a sink's: "running", "idle" or "suspended"; absent is
+	// running, so a file that predates it behaves as it did.
+	State string `json:"state,omitempty"`
 }
 
 // DemoPort is one port; Available is "yes", "no" or "" for unknown.
@@ -124,6 +127,7 @@ func (d *Demo) devices(list []DemoDevice) []Device {
 			ActivePort:    s.ActivePort,
 			Mute:          s.Mute,
 			VolumePercent: s.Volume,
+			State:         demoState(s.State),
 		}
 		if dev.Properties == nil {
 			dev.Properties = map[string]string{}
@@ -142,6 +146,21 @@ func (d *Demo) devices(list []DemoDevice) []Device {
 	}
 	return out
 }
+
+// demoState reads a state from the file; absent or unknown is running.
+func demoState(s string) State {
+	switch s {
+	case "idle":
+		return StateIdle
+	case "suspended":
+		return StateSuspended
+	}
+	return StateRunning
+}
+
+// BluetoothProfile is "": the file has no cards, and an unknown profile
+// routes as 0.1.7 did.
+func (d *Demo) BluetoothProfile(string) (string, error) { return "", nil }
 
 // Sinks lists the file's sinks.
 func (d *Demo) Sinks() ([]Device, error) {
@@ -181,7 +200,7 @@ func (d *Demo) SetDefaultSource(name string) error {
 func (d *Demo) MoveSinkInputs(string) (int, int, error) { return 2, 0, nil }
 
 // SetStreamLevel does nothing: the demo has no streams.
-func (d *Demo) SetStreamLevel(string, float64) error { return nil }
+func (d *Demo) SetStreamLevel(string, float64) (bool, error) { return false, nil }
 
 func (d *Demo) sink(name string) int {
 	for i, s := range d.file.Sinks {

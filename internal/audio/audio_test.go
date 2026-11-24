@@ -56,3 +56,32 @@ func TestTheLiveServerAnswers(t *testing.T) {
 	_, err = c.Sources()
 	require.NoError(t, err)
 }
+
+// TestTheDemoSinkStateDefaultsToRunning (spec 007 R1.2): a demo file
+// written before sinks had a state keeps playing as before, and a file can
+// put a sink to sleep to show the wake.
+func TestTheDemoSinkStateDefaultsToRunning(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devices.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"sinks": [
+		{"name": "alsa_output.plain"},
+		{"name": "bluez_output.AA_BB_CC_DD_EE_FF.1", "state": "suspended"},
+		{"name": "alsa_output.idle", "state": "idle"}]}`), 0o600))
+	d, err := LoadDemo(DemoPrefix + path)
+	require.NoError(t, err)
+	sinks, err := d.Sinks()
+	require.NoError(t, err)
+	require.Equal(t, StateRunning, sinks[0].State)
+	require.Equal(t, StateSuspended, sinks[1].State)
+	require.True(t, sinks[1].State.Asleep())
+	require.True(t, sinks[2].State.Asleep())
+	require.False(t, StateUnknown.Asleep(), "a sink of unknown state was taken for asleep")
+}
+
+// TestTheSinkStateIsThePulseValue (spec 007 R1.1): pa_sink_state_t, as
+// PipeWire's pulse server sends it; anything else is unknown.
+func TestTheSinkStateIsThePulseValue(t *testing.T) {
+	require.Equal(t, StateRunning, sinkState(0))
+	require.Equal(t, StateIdle, sinkState(1))
+	require.Equal(t, StateSuspended, sinkState(2))
+	require.Equal(t, StateUnknown, sinkState(0xffffffff))
+}

@@ -65,3 +65,33 @@ func TestTheLiveAdapterAnswers(t *testing.T) {
 		require.NotEmpty(t, d.Name)
 	}
 }
+
+func transport(dev dbus.ObjectPath, state string) map[string]map[string]dbus.Variant {
+	return map[string]map[string]dbus.Variant{
+		transportIface: {"Device": dbus.MakeVariant(dev), "State": dbus.MakeVariant(state)},
+	}
+}
+
+// TestTheTransportIsTheDevicesOwn (spec 007): the handover waits for the
+// headset's own A2DP transport to be active, not another device's; a
+// headset with none, as in handsfree, reports "", which does not hold the
+// bridge back.
+func TestTheTransportIsTheDevicesOwn(t *testing.T) {
+	head := dbus.ObjectPath("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF")
+	other := dbus.ObjectPath("/org/bluez/hci0/dev_00_11_22_33_44_55")
+	objs := managed{
+		head:                device("AA:BB:CC:DD:EE:FF", "XM", "", "audio-headset", nil, true),
+		other:               device("00:11:22:33:44:55", "Car", "", "audio-card", nil, true),
+		other + "/sep1/fd0": transport(other, "active"),
+		head + "/sep1/fd3":  transport(head, "pending"),
+	}
+	require.Equal(t, "pending", transportState(objs, "aa:bb:cc:dd:ee:ff"), "another device's active transport counted")
+
+	objs[head+"/sep2/fd4"] = transport(head, "active")
+	require.Equal(t, "active", transportState(objs, "AA:BB:CC:DD:EE:FF"))
+
+	delete(objs, head+"/sep1/fd3")
+	delete(objs, head+"/sep2/fd4")
+	require.Empty(t, transportState(objs, "AA:BB:CC:DD:EE:FF"), "a headset with no transport")
+	require.Empty(t, transportState(objs, "FF:FF:FF:FF:FF:FF"), "an unknown device")
+}

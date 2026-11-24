@@ -73,28 +73,29 @@ func NewWith(start loopback.Starter) *Bridge { return &Bridge{start: start} }
 Ensure starts the child unless it runs, and waits until ready reports its
 nodes in the graph. A child that has died since the last call is started
 again (R1.2); one that never becomes ready is stopped, so a later call
-starts clean.
+starts clean. fresh says a new child started: its nodes have never been
+wired to anything, which spec 007 D2 needs to know.
 */
-func (b *Bridge) Ensure(ctx context.Context, ready func(context.Context) bool) error {
+func (b *Bridge) Ensure(ctx context.Context, ready func(context.Context) bool) (fresh bool, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.running != nil && b.running() {
-		return nil
+		return false, nil
 	}
 	stop, running, err := b.start("pw-loopback", Args()...)
 	if err != nil {
-		return fmt.Errorf("start pw-loopback: %w", err)
+		return false, fmt.Errorf("start pw-loopback: %w", err)
 	}
 	b.stop, b.running = stop, running
 
 	deadline := time.Now().Add(ReadyTimeout)
 	for {
 		if ready(ctx) {
-			return nil
+			return true, nil
 		}
 		if !running() || time.Now().After(deadline) || ctx.Err() != nil {
 			b.stopLocked()
-			return ErrNotReady
+			return false, ErrNotReady
 		}
 		time.Sleep(readyPoll)
 	}

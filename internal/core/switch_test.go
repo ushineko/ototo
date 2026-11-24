@@ -37,7 +37,11 @@ type fakeServer struct {
 	muted       bool
 	calls       []string
 	failSet     error
+	// btProfile is every Bluetooth card's active profile; "" is none.
+	btProfile string
 }
+
+func (f *fakeServer) BluetoothProfile(string) (string, error) { return f.btProfile, nil }
 
 func (f *fakeServer) Server() (audio.Server, error) {
 	return audio.Server{Name: "fake", DefaultSink: f.defaultSink, DefaultSource: f.defaultSrc}, nil
@@ -57,9 +61,9 @@ func (f *fakeServer) SetDefaultSource(name string) error {
 	f.defaultSrc = name
 	return nil
 }
-func (f *fakeServer) SetStreamLevel(node string, linear float64) error {
+func (f *fakeServer) SetStreamLevel(node string, linear float64) (bool, error) {
 	f.calls = append(f.calls, fmt.Sprintf("level %s %.2f", node, linear))
-	return nil
+	return true, nil
 }
 func (f *fakeServer) MoveSinkInputs(sink string) (int, int, error) {
 	f.calls = append(f.calls, "move "+sink)
@@ -143,6 +147,9 @@ type world struct {
 	// bt is what the fake adapter reports; connects is what it was asked.
 	bt       []devices.Bluetooth
 	connects []string
+	// transport is what BlueZ says of the headset's A2DP transport; nil
+	// cannot tell.
+	transport func() string
 }
 
 func newWorld(t *testing.T, jdsp bool) *world {
@@ -195,6 +202,12 @@ func (w *world) req() Request {
 			w.srv.sources = append(w.srv.sources, sinkWith("bluez_input.AA_BB_CC_DD_EE_FF", map[string]string{
 				"api.bluez5.address": "AA:BB:CC:DD:EE:FF", "device.description": "AirPods Mic"}))
 			return nil
+		},
+		Transport: func(context.Context, string) string {
+			if w.transport == nil {
+				return ""
+			}
+			return w.transport()
 		},
 	}}
 }

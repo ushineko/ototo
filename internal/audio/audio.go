@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 
 	"github.com/jfreymuth/pulse/proto"
 )
@@ -60,6 +61,37 @@ type Device struct {
 	Mute        bool
 	// VolumePercent is the loudest channel, as a percentage of normal.
 	VolumePercent int
+	// State is a sink's state on the server (spec 007 R1); StateUnknown
+	// for a source, and for a server that did not say.
+	State State
+}
+
+// State is a sink's state as the PulseAudio protocol reports it.
+type State int
+
+// The states. Unknown is the zero value, so a device built without one is
+// not taken for asleep.
+const (
+	StateUnknown State = iota
+	StateRunning
+	StateIdle
+	StateSuspended
+)
+
+// Asleep says the sink is not processing: idle or suspended.
+func (s State) Asleep() bool { return s == StateIdle || s == StateSuspended }
+
+// sinkState maps the protocol's pa_sink_state_t.
+func sinkState(v uint32) State {
+	switch v {
+	case 0:
+		return StateRunning
+	case 1:
+		return StateIdle
+	case 2:
+		return StateSuspended
+	}
+	return StateUnknown
 }
 
 // Connected reports whether the active port has something plugged into it. A
@@ -141,6 +173,7 @@ func (c *Client) Sinks() ([]Device, error) {
 			ActivePort:    s.ActivePortName,
 			Mute:          s.Mute,
 			VolumePercent: Percent(s.ChannelVolumes),
+			State:         sinkState(s.State),
 		}
 		for _, p := range s.Ports {
 			d.Ports = append(d.Ports, Port{Name: p.Name, Description: p.Description, Availability: int(p.Available)})
@@ -149,6 +182,26 @@ func (c *Client) Sinks() ([]Device, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Index < out[j].Index })
 	return out, nil
+}
+
+/*
+BluetoothProfile is the active profile of the Bluetooth card with this
+address ("a2dp-sink-sbc_xq", "headset-head-unit"), or "" when the server has
+no such card. The card says what the headset is doing where its sink does
+not: WirePlumber 0.5.13 puts a stereo node of its own in front of the
+headset in every profile.
+*/
+func (c *Client) BluetoothProfile(address string) (string, error) {
+	var r proto.GetCardInfoListReply
+	if err := c.c.Request(&proto.GetCardInfoList{}, &r); err != nil {
+		return "", fmt.Errorf("list the cards: %w", err)
+	}
+	for _, card := range r {
+		if strings.EqualFold(properties(card.Properties)["api.bluez5.address"], address) {
+			return card.ActiveProfileName, nil
+		}
+	}
+	return "", nil
 }
 
 // Sources lists every input, in index order. Monitors of outputs are left out:
